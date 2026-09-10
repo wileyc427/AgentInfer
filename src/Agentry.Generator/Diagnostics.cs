@@ -68,4 +68,31 @@ internal static class Diagnostics
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    /// <summary>
+    /// A parameter the schema builder cannot describe. Better here than as a
+    /// model sending a shape the parameter cannot take, learned from a trace.
+    /// </summary>
+    public static readonly DiagnosticDescriptor UnsupportedToolParameter = new(
+        id: "AGT005",
+        title: "Unsupported tool parameter",
+        messageFormat: "'{0}' takes '{1} {2}', which has no JSON schema. Use a scalar, an enum, or an array of those.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// NOOA equivalent: <c>@hidden</c> keeps a method out of the generated docs
+    /// and leaves it perfectly callable, because an in-process object cannot
+    /// make its own methods unreachable. Here every tool states its permission
+    /// and the generator narrows what is bound — so the answer to "may this
+    /// caller reach it" is decided before anything runs.
+    /// </summary>
+    public static readonly DiagnosticDescriptor MissingToolPermission = new(
+        id: "AGT006",
+        title: "Tool requires [RequiresPermission]",
+        messageFormat: "'{0}' is an [AgentTool] with no [RequiresPermission]. Say what a caller must hold, even if it is a permission everyone has.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
 }

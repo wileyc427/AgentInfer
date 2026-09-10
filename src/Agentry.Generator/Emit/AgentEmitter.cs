@@ -56,6 +56,8 @@ internal static class AgentEmitter
         code.Append("    public ").Append(model.ImplementationName)
             .AppendLine("(global::Agentry.AgentRunner runner) => _runner = runner;");
 
+        EmitToolManifest(code, model);
+
         foreach (var method in model.Methods)
         {
             EmitMethod(code, method);
@@ -63,6 +65,49 @@ internal static class AgentEmitter
 
         code.AppendLine("}");
         return code.ToString();
+    }
+
+    /// <summary>
+    /// Emits what this agent may call, as data.
+    /// </summary>
+    /// <remarks>
+    /// A static property rather than something built at construction: the
+    /// manifest is a fact about the type, known at compile time, and there is
+    /// no moment at run time when it could differ. Building it in a constructor
+    /// would be doing work to arrive at a constant.
+    /// <para>
+    /// The schema is a verbatim literal. Nothing reflects over the tool method
+    /// to produce it, which is what makes this survive trimming.
+    /// </para>
+    /// </remarks>
+    private static void EmitToolManifest(StringBuilder code, AgentModel model)
+    {
+        code.AppendLine();
+        code.AppendLine("    /// <summary>What this agent may call. Compile-time constant.</summary>");
+        code.AppendLine("    public static global::Agentry.ToolManifest Tools { get; } = new(");
+        code.AppendLine("        new global::Agentry.ToolDescriptor[]");
+        code.AppendLine("        {");
+
+        foreach (var tool in model.Tools)
+        {
+            code.AppendLine("            new(");
+            code.Append("                ").Append(Literal(tool.Name)).AppendLine(",");
+            code.Append("                ").Append(Literal(tool.Description)).AppendLine(",");
+            code.Append("                ").Append(Literal(tool.ParametersSchema)).AppendLine(",");
+            code.Append("                new string[] { ");
+
+            var first = true;
+            foreach (var permission in tool.Permissions)
+            {
+                if (!first) code.Append(", ");
+                code.Append(Literal(permission));
+                first = false;
+            }
+
+            code.AppendLine(" }),");
+        }
+
+        code.AppendLine("        });");
     }
 
     private static void EmitMethod(StringBuilder code, MethodModel method)

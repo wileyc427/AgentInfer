@@ -41,4 +41,23 @@ public sealed class AgentAttribute : Attribute
     /// name without its leading <c>I</c>, suffixed <c>Agent</c>.
     /// </summary>
     public string? ImplementationName { get; set; }
+
+    /// <summary>
+    /// The type whose <see cref="AgentToolAttribute"/> methods this agent may call.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Named on the agent rather than discovered globally, because "what may
+    /// this agent reach" is a property of the agent and should be readable
+    /// where the agent is declared. A registry that collected every tool in the
+    /// assembly would make the answer a grep instead of a line.
+    /// </para>
+    /// <para>
+    /// This is also where the authorization story attaches: the generator emits
+    /// one narrowed facade per permission set found on this type, and only the
+    /// facade matching the principal is bound. A method the caller may not use
+    /// is absent rather than refused.
+    /// </para>
+    /// </remarks>
+    public Type? Tools { get; set; }
 }

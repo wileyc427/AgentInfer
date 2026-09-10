@@ -13,3 +13,5 @@ AGT001  | Agentry  | Error    | Agent requires a system prompt
 AGT002  | Agentry  | Error    | Generation method requires [Prompt]
 AGT003  | Agentry  | Error    | Unsupported return type; must be Task<T>
 AGT004  | Agentry  | Error    | CodeAct is not implemented (P3)
+AGT005  | Agentry  | Error    | Unsupported tool parameter type
+AGT006  | Agentry  | Warning  | [AgentTool] requires [RequiresPermission]
