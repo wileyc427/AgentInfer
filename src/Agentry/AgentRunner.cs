@@ -75,6 +75,14 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         var text = response.Text ?? string.Empty;
         Log(call, started, text.Length);
 
+        return Bind<T>(call, text, options);
+    }
+
+    /// <summary>Binds a reply, or explains why it could not.</summary>
+    [RequiresUnreferencedCode("Reflection-based JSON.")]
+    [RequiresDynamicCode("Reflection-based JSON.")]
+    private static T Bind<T>(AgentCall call, string text, JsonSerializerOptions? options)
+    {
         try
         {
             var value = JsonSerializer.Deserialize<T>(Unfence(text), options ?? JsonSerializerOptions.Web);
@@ -124,6 +132,56 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         using var activity = Activity.StartActivity(call.Operation);
         var started = Stopwatch.GetTimestamp();
 
+        return await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, started, ct)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs a tool-using method whose result is bound from JSON.
+    /// </summary>
+    /// <remarks>
+    /// Symmetrical with the text version on purpose. The alternative considered
+    /// was "tool-using methods must return string", which is simpler to
+    /// implement and worse to use: it makes whether a method gets tools depend
+    /// on its return type, which is a rule nobody would guess and everybody
+    /// would trip over.
+    /// <para>
+    /// The loop resolves the tool calls first; what is bound is the final
+    /// assistant message, exactly as in the plain JSON path.
+    /// </para>
+    /// </remarks>
+    [RequiresUnreferencedCode("Binds the result with reflection-based JSON. A generated JsonSerializerContext replaces this.")]
+    [RequiresDynamicCode("Binds the result with reflection-based JSON. A generated JsonSerializerContext replaces this.")]
+    public async Task<T> CompleteJsonWithToolsAsync<T>(
+        AgentCall call,
+        ToolInvoker invoker,
+        IToolAuthorizer authorizer,
+        int maxIterations = 6,
+        JsonSerializerOptions? options = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(invoker);
+        ArgumentNullException.ThrowIfNull(authorizer);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxIterations, 1);
+
+        using var activity = Activity.StartActivity(call.Operation);
+        var started = Stopwatch.GetTimestamp();
+
+        var text = await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: true, started, ct)
+            .ConfigureAwait(false);
+
+        return Bind<T>(call, text, options);
+    }
+
+    private async Task<string> RunWithToolsAsync(
+        AgentCall call,
+        ToolInvoker invoker,
+        IToolAuthorizer authorizer,
+        int maxIterations,
+        bool json,
+        long started,
+        CancellationToken ct)
+    {
         var available = invoker.AvailableTo(authorizer);
         _logger.LogInformation(
             "{Operation} offering {Count} of {Total} tools",
@@ -134,19 +192,16 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         var options = new ChatOptions
         {
             Tools = [.. available.Select(d => new GatedFunction(d, invoker, authorizer))],
-            // The bound that stops a model and a tool trading turns until
-            // something else does. Low by default for the same reason the
-            // revision loop's was.
-            MaxOutputTokens = null,
         };
 
         using var looping = new FunctionInvokingChatClient(_client)
         {
+            // The bound that stops a model and a tool trading turns until
+            // something else does — usually a bill.
             MaximumIterationsPerRequest = maxIterations,
         };
 
-        var response = await looping.GetResponseAsync(Build(call, json: false), options, ct)
-            .ConfigureAwait(false);
+        var response = await looping.GetResponseAsync(Build(call, json), options, ct).ConfigureAwait(false);
 
         var text = response.Text ?? string.Empty;
         Log(call, started, text.Length);

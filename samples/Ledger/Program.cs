@@ -5,31 +5,28 @@ using Agentry;
 
 using Ledger;
 
-// Everything below the two constructor calls is generated. LedgerAnalystAgent
-// implements ILedgerAnalyst, takes an AgentRunner, and nothing was registered
-// by hand — in a real host both come from DI.
 var (client, description) = Model.Resolve();
-Console.WriteLine($"model: {description}\n");
+Console.WriteLine($"model: {description}");
 
-ILedgerAnalyst analyst = new LedgerAnalystAgent(new AgentRunner(client));
+// The caller may read the ledger and not write to it. LedgerTools declares a
+// Reclassify tool requiring "ledger.write", so the model is never told it
+// exists — and would be refused if it asked anyway.
+var caller = new GrantedPermissions(["ledger.read"]);
+var invoker = new LedgerAnalystAgentTools(new LedgerTools());
 
-const string Figures = """
-    groceries  spent 259.65  budget 300.00
-    coffee     spent  22.80  budget  15.00
-    transport  spent  57.75  budget  80.00
-    books      spent  31.99  budget  40.00
-    """;
+Console.WriteLine(
+    $"tools: {string.Join(", ", invoker.AvailableTo(caller).Select(t => t.Name))} " +
+    $"(of {invoker.Manifest.Tools.Count}; the rest need permissions this caller lacks)\n");
+
+// Generated. In a real host all three come from DI.
+ILedgerAnalyst analyst = new LedgerAnalystAgent(new AgentRunner(client), invoker, caller);
 
 try
 {
-    // Task<string>: text in, text out, no schema and no parsing.
-    var summary = await analyst.SummariseAsync(Figures);
+    var summary = await analyst.SummariseAsync();
     Console.WriteLine($"summary: {summary}\n");
 
-    // Task<Verdict>: the reply is bound to the record. A model that answers in
-    // prose fails here with the prose in the message, which is the thing worth
-    // seeing when it happens.
-    var verdict = await analyst.ReviewAsync(summary, Figures);
+    var verdict = await analyst.ReviewAsync(summary);
     Console.WriteLine($"verdict: approved={verdict.Approved} score={verdict.Score}/5");
     foreach (var problem in verdict.Problems)
     {
@@ -59,15 +56,9 @@ return 0;
 /// tries") wrapping a ClientResultException wrapping an HttpRequestException
 /// wrapping a SocketException, and the default output is forty lines of
 /// pipeline-policy stack. The cause is in there; nothing surfaces it.
-/// <para>
-/// This is the same failure the Python side had — four silent retries under a
-/// bug-report banner — and the same fix: unwrap, name the cause, say what to do.
-/// </para>
 /// </remarks>
 static string Explain(Exception error)
 {
-    // Walk to the innermost cause. AggregateException nests differently from
-    // the rest, so flatten it first.
     var cause = error is AggregateException aggregate
         ? aggregate.Flatten().InnerExceptions[0]
         : error;

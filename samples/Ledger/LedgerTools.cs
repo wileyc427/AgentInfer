@@ -22,6 +22,14 @@ public sealed class LedgerTools
         ["books"] = 31.99m,
     };
 
+    private readonly Dictionary<string, decimal> _budget = new()
+    {
+        ["groceries"] = 300.00m,
+        ["coffee"] = 15.00m,
+        ["transport"] = 80.00m,
+        ["books"] = 40.00m,
+    };
+
     [AgentTool("Every category that has at least one transaction.")]
     [RequiresPermission("ledger.read")]
     public string[] Categories() => [.. _spend.Keys.Order()];
@@ -29,6 +37,10 @@ public sealed class LedgerTools
     [AgentTool("The total spent in one category.")]
     [RequiresPermission("ledger.read")]
     public decimal TotalFor(string category) => _spend.TryGetValue(category, out var total) ? total : 0m;
+
+    [AgentTool("The monthly budget for a category. Zero when it has none.")]
+    [RequiresPermission("ledger.read")]
+    public decimal BudgetFor(string category) => _budget.TryGetValue(category, out var budget) ? budget : 0m;
 
     [AgentTool("Move a transaction into a different category.")]
     [RequiresPermission("ledger.write")]

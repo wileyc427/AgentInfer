@@ -239,3 +239,86 @@ public sealed class InvokerTests
         Assert.DoesNotContain("ToolInvoker", output);
     }
 }
+
+/// <summary>
+/// How a generation method is wired once its agent has tools.
+/// </summary>
+public sealed class ToolRoutingTests
+{
+    private const string WithTools = """
+        using System.Threading;
+        using System.Threading.Tasks;
+        using Agentry;
+
+        namespace Demo;
+
+        public sealed record Verdict(bool Approved);
+
+        public sealed class Tools
+        {
+            [AgentTool("Reads.")]
+            [RequiresPermission("read")]
+            public decimal TotalFor(string category) => 0m;
+        }
+
+        [Agent("You are terse.", Tools = typeof(Tools))]
+        public interface IAnalyst
+        {
+            [Prompt("Summarise.")]
+            [Strategy(Strategies.Predict, MaxIterations = 9)]
+            public Task<string> SummariseAsync(CancellationToken ct = default);
+
+            [Prompt("Judge.")]
+            public Task<Verdict> ReviewAsync(string summary, CancellationToken ct = default);
+        }
+        """;
+
+    private const string WithoutTools = """
+        using System.Threading.Tasks;
+        using Agentry;
+        [Agent("You are terse.")]
+        public interface IThing { [Prompt("Do it.")] public Task<string> DoAsync(); }
+        """;
+
+    [Fact]
+    public void The_constructor_requires_an_invoker_and_an_authorizer()
+    {
+        var (output, _) = GeneratorHarness.Run(WithTools);
+
+        // Both required rather than optional: an authorizer defaulting to
+        // "allow" would make the safe path the one you have to remember.
+        Assert.Contains(
+            "public AnalystAgent(global::Agentry.AgentRunner runner, AnalystAgentTools tools, global::Agentry.IToolAuthorizer authorizer)",
+            output);
+    }
+
+    [Fact]
+    public void Both_return_shapes_get_tools_not_just_the_text_one()
+    {
+        var (output, _) = GeneratorHarness.Run(WithTools);
+
+        // Tying tools to the return type would be a rule nobody would guess.
+        Assert.Contains("CompleteWithToolsAsync(call, _tools, _authorizer,", output);
+        Assert.Contains("CompleteJsonWithToolsAsync<global::Demo.Verdict>(call, _tools, _authorizer,", output);
+    }
+
+    [Fact]
+    public void MaxIterations_bounds_the_tool_loop_not_only_CodeAct()
+    {
+        var (output, _) = GeneratorHarness.Run(WithTools);
+
+        Assert.Contains("_tools, _authorizer, 9,", output);
+        // The default applies to the method that did not say.
+        Assert.Contains("_tools, _authorizer, 6,", output);
+    }
+
+    [Fact]
+    public void An_agent_without_tools_keeps_the_plain_constructor_and_the_plain_path()
+    {
+        var (output, _) = GeneratorHarness.Run(WithoutTools);
+
+        Assert.Contains("public ThingAgent(global::Agentry.AgentRunner runner)", output);
+        Assert.Contains("CompleteTextAsync(call,", output);
+        Assert.DoesNotContain("_authorizer", output);
+    }
+}

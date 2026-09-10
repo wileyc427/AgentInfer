@@ -53,15 +53,44 @@ internal static class AgentEmitter
         code.Append("    private const string SystemPrompt = ").Append(Literal(model.SystemPrompt)).AppendLine(";");
         code.AppendLine();
         code.AppendLine("    private readonly global::Agentry.AgentRunner _runner;");
+
+        if (model.Tools.Count > 0)
+        {
+            // Both are required rather than optional. An authorizer that
+            // defaults to "allow" would make the safe path the one you have to
+            // remember, which is the wrong way round for a permission gate.
+            code.Append("    private readonly ").Append(model.ImplementationName)
+                .AppendLine("Tools _tools;");
+            code.AppendLine("    private readonly global::Agentry.IToolAuthorizer _authorizer;");
+        }
+
         code.AppendLine();
         code.Append("    public ").Append(model.ImplementationName)
-            .AppendLine("(global::Agentry.AgentRunner runner) => _runner = runner;");
+            .Append("(global::Agentry.AgentRunner runner");
+
+        if (model.Tools.Count > 0)
+        {
+            code.Append(", ").Append(model.ImplementationName).Append("Tools tools")
+                .Append(", global::Agentry.IToolAuthorizer authorizer");
+        }
+
+        code.AppendLine(")");
+        code.AppendLine("    {");
+        code.AppendLine("        _runner = runner;");
+
+        if (model.Tools.Count > 0)
+        {
+            code.AppendLine("        _tools = tools;");
+            code.AppendLine("        _authorizer = authorizer;");
+        }
+
+        code.AppendLine("    }");
 
         EmitToolManifest(code, model);
 
         foreach (var method in model.Methods)
         {
-            EmitMethod(code, method);
+            EmitMethod(code, method, model.Tools.Count > 0);
         }
 
         code.AppendLine("}");
@@ -117,7 +146,7 @@ internal static class AgentEmitter
         code.AppendLine("        });");
     }
 
-    private static void EmitMethod(StringBuilder code, MethodModel method)
+    private static void EmitMethod(StringBuilder code, MethodModel method, bool hasTools)
     {
         var ct = method.CancellationTokenParameter ?? "default";
 
@@ -169,16 +198,34 @@ internal static class AgentEmitter
         code.AppendLine("        };");
         code.AppendLine();
 
+        // An agent with tools uses them on every generation method. The
+        // alternative — tools only on methods returning string — makes whether
+        // a method can call a tool depend on its return type, which is a rule
+        // nobody would guess.
+        var tools = hasTools ? $", _tools, _authorizer, {method.MaxIterations}" : string.Empty;
+
         if (method.Shape == ReturnShape.Text)
         {
-            code.Append("        return await _runner.CompleteTextAsync(call, ").Append(ct)
-                .AppendLine(").ConfigureAwait(false);");
+            var name = hasTools ? "CompleteWithToolsAsync" : "CompleteTextAsync";
+            code.Append("        return await _runner.").Append(name).Append("(call")
+                .Append(tools).Append(", ").Append(ct).AppendLine(").ConfigureAwait(false);");
         }
         else
         {
             code.AppendLine("#pragma warning disable IL2026, IL3050 // P1 binds JSON reflectively; see AgentRunner.");
-            code.Append("        return await _runner.CompleteJsonAsync<").Append(method.ReturnType)
-                .Append(">(call, null, ").Append(ct).AppendLine(").ConfigureAwait(false);");
+
+            if (hasTools)
+            {
+                code.Append("        return await _runner.CompleteJsonWithToolsAsync<").Append(method.ReturnType)
+                    .Append(">(call").Append(tools).Append(", null, ").Append(ct)
+                    .AppendLine(").ConfigureAwait(false);");
+            }
+            else
+            {
+                code.Append("        return await _runner.CompleteJsonAsync<").Append(method.ReturnType)
+                    .Append(">(call, null, ").Append(ct).AppendLine(").ConfigureAwait(false);");
+            }
+
             code.AppendLine("#pragma warning restore IL2026, IL3050");
         }
 

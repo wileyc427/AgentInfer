@@ -6,25 +6,35 @@ namespace Ledger;
 public sealed record Verdict(bool Approved, int Score, string[] Problems);
 
 /// <summary>
-/// The whole authoring surface: an interface, attributed. No base class, no
-/// registration call, no partial method to fill in.
+/// The whole authoring surface: an interface, attributed.
 /// </summary>
+/// <remarks>
+/// Note what the methods do <em>not</em> take. Before there were tools,
+/// <c>SummariseAsync</c> was handed the figures as a string. Now the agent
+/// fetches them, which is the point of tools and also the more honest demo —
+/// passing the data in makes the tools decorative.
+/// </remarks>
 [Agent("""
     You answer questions about a household ledger.
-    Use only figures you were given. Never invent an amount.
+
+    You have tools for listing categories, totalling one, and reading its
+    budget. Use them. Never invent an amount, and never state a figure you did
+    not get from a tool.
+
     Answer in one or two sentences with the actual numbers in them.
     """,
     Tools = typeof(LedgerTools))]
 public interface ILedgerAnalyst
 {
     /// <summary>Returns prose, so no schema and no parsing is involved.</summary>
-    [Prompt("Summarise this spending against its budget in two sentences.")]
-    public Task<string> SummariseAsync(string spending, CancellationToken ct = default);
+    [Prompt("Which categories are over budget, and by how much?")]
+    [Strategy(Strategies.Predict, MaxIterations = 8)]
+    public Task<string> SummariseAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Returns a record, so the generator routes it through the JSON path and
-    /// the reply is bound to the type rather than handed back as text.
+    /// Returns a record, so the reply is bound to the type. Tools resolve
+    /// first; what is bound is the final message.
     /// </summary>
-    [Prompt("Judge whether this summary is supported by the figures given.")]
-    public Task<Verdict> ReviewAsync(string summary, string figures, CancellationToken ct = default);
+    [Prompt("Judge whether this summary is supported by the figures the tools report.")]
+    public Task<Verdict> ReviewAsync(string summary, CancellationToken ct = default);
 }

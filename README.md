@@ -28,10 +28,11 @@ Design reasoning lives in
 
 ## Where it is
 
-**P1 done, P2 started.** The generator, the attributes, a Predict runtime over
-`Microsoft.Extensions.AI`, and a real model call verified end to end. `[AgentTool]`
-discovery and compile-time schemas are in; the function-calling loop and the
-authorization facades are not. No sandbox — that is P3 and it is not started.
+**P1 and P2 done.** The generator, the attributes, a Predict runtime over
+`Microsoft.Extensions.AI`, `[AgentTool]` with compile-time schemas, enforced
+`[RequiresPermission]`, and a tool-calling loop — all verified end to end
+against a stub endpoint. No sandbox and no CodeAct: that is P3 and it is not
+started.
 
 | Package | What it is |
 | --- | --- |
@@ -138,8 +139,41 @@ The loop itself is `FunctionInvokingChatClient`'s, not ours. It is the
 platform's and it already handles parallel calls and per-call failures — writing
 a second one would be the same mistake as wrapping `IChatClient`.
 
-Still to come: the generator does not yet route a generation method through the
-tool loop automatically. `CompleteWithToolsAsync` is called by hand.
+### An agent with tools uses them
+
+```csharp
+var caller  = new GrantedPermissions(["ledger.read"]);
+var invoker = new LedgerAnalystAgentTools(new LedgerTools());
+
+ILedgerAnalyst analyst = new LedgerAnalystAgent(new AgentRunner(client), invoker, caller);
+
+await analyst.SummariseAsync();   // calls tools, then answers
+```
+
+The generated constructor takes the invoker and the authorizer, and **both are
+required**. An authorizer defaulting to "allow" would make the safe path the one
+you have to remember, which is the wrong way round for a permission gate.
+
+Every generation method gets tools, not only the ones returning `string`. Tying
+tools to the return type would be a rule nobody would guess. For a typed return
+the loop resolves the tool calls first and the final message is bound, exactly
+as on the plain path.
+
+`[Strategy(Strategies.Predict, MaxIterations = 8)]` bounds the loop. It is not
+only a CodeAct setting — a method that can call tools can trade turns with them,
+and that needs a bound wherever the turns come from.
+
+Running the sample against a tool-calling stub:
+
+```
+tools: Categories, TotalFor, BudgetFor (of 4; the rest need permissions this caller lacks)
+
+summary: Coffee is over budget by 7.80; everything else is within budget.
+verdict: approved=True score=4/5
+```
+
+`Reclassify` requires `ledger.write`, so it is absent from what the model was
+told — not refused, absent.
 
 ## Build
 
