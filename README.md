@@ -106,9 +106,40 @@ Tools are opt-in one method at a time. A public method without `[AgentTool]` is
 **absent** from the manifest, not hidden from documentation while remaining
 callable — which is what NOOA's `@hidden` actually does.
 
-Still to come in P2: the function-calling loop (`ChatOptions.Tools` and
-dispatch) and the per-permission facades that make `[RequiresPermission]`
-enforceable rather than declarative.
+### Permissions are enforced, not declared
+
+```csharp
+var invoker = new LedgerAnalystAgentTools(new LedgerTools());
+var caller  = new GrantedPermissions(["ledger.read"]);
+
+await runner.CompleteWithToolsAsync(call, invoker, caller);
+```
+
+`AvailableTo` filters the menu the model is sent, so a tool this caller may not
+use is one it is **never told about**. `InvokeAsync` checks again before
+dispatch, because a conversation that began before a permission changed still
+has the old tool written down in its context.
+
+Two places is not redundancy — it is the same shape a permission gate has to
+have anywhere a conversation can outlive a grant.
+
+The check lives inside the `AIFunction`, not around the loop, so it holds
+whichever loop drives. A denied call is **returned to the model** rather than
+thrown: the model stops asking and says what it could not do, and the person
+waiting on an answer still gets one. Nothing ran either way.
+
+> **A change from the design note.** It proposed one narrowed facade *type* per
+> permission set. That is combinatorial — the distinct sets a principal can hold
+> is the powerset of the permissions in play, so eight permissions is 256
+> generated types. Filtering the menu and gating dispatch gets the same property
+> without the explosion.
+
+The loop itself is `FunctionInvokingChatClient`'s, not ours. It is the
+platform's and it already handles parallel calls and per-call failures — writing
+a second one would be the same mistake as wrapping `IChatClient`.
+
+Still to come: the generator does not yet route a generation method through the
+tool loop automatically. `CompleteWithToolsAsync` is called by hand.
 
 ## Build
 
