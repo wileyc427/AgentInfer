@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/Ledger/Ledger.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Agentry.Abstractions/Agentry.Abstractions.csproj" />
+    <Project Path="src/Agentry.Generator/Agentry.Generator.csproj" />
+    <Project Path="src/Agentry/Agentry.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Agentry.Generator.Tests/Agentry.Generator.Tests.csproj" />
+  </Folder>
+</Solution>

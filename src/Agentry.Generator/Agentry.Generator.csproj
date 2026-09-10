@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      netstandard2.0 is not a preference. A generator is a plugin loaded INTO
+      the compiler, and the compiler runs on netstandard2.0 — targeting anything
+      else produces an analyzer the SDK silently declines to load, which
+      presents as "my generator produced nothing" with no error anywhere.
+    -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <Description>Roslyn source generator for Agentry.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- PrivateAssets=all: Roslyn is supplied by the host compiler, never shipped. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The release-tracking analyzer reads these. Required by
+      EnforceExtendedAnalyzerRules, and worth keeping: a diagnostic id that
+      changes meaning between versions silently reclassifies somebody's build.
+    -->
+    <AdditionalFiles Include="AnalyzerReleases.Shipped.md" />
+    <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The analyzer path is how NuGet knows to load this into the compiler. -->
+    <None Include="$(OutputPath)/$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+  </ItemGroup>
+
+</Project>

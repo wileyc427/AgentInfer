@@ -1,0 +1,37 @@
+<Project>
+
+  <!--
+    Central package management: versions live here, never in a csproj. With a
+    source generator in the tree this matters more than usual — the generator
+    and its tests must agree on the Roslyn version exactly, and two csproj files
+    drifting apart produces errors that look like generator bugs.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup Label="Runtime">
+    <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.10.0" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Generator">
+    <!--
+      4.14.0 rather than latest: a generator must run inside whatever Roslyn the
+      consumer's SDK ships, so it targets the OLDEST supported compiler, not the
+      newest. Raising this raises the minimum SDK for everyone using the library.
+    -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="4.14.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Test">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit.v3" Version="3.1.0" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" Version="1.1.2" />
+  </ItemGroup>
+
+</Project>

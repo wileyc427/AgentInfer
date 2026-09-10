@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Ledger</RootNamespace>
+
+    <!--
+      Writes what the generator produced to obj/generated/ so it can be read,
+      diffed and reviewed. On for the sample on purpose: "you can just open the
+      generated file" is a claim this design makes, and it should be true here.
+    -->
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)generated</CompilerGeneratedFilesOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Agentry/Agentry.csproj" />
+
+    <!--
+      The generator has to be referenced AGAIN, here, and this is the gotcha
+      worth knowing: analyzers do not flow transitively through
+      ProjectReference. Agentry references the generator as an Analyzer, but a
+      project referencing Agentry gets the runtime and no generator — the build
+      succeeds for the library and then every consumer sees "type not found".
+
+      It works transitively through a NuGet package (analyzers/dotnet/cs in the
+      nupkg), so this line is only needed for projects inside this repo. There
+      is a repo-local .props that could hide it; left explicit because the
+      failure it prevents is confusing enough to be worth seeing.
+    -->
+    <ProjectReference Include="../../src/Agentry.Generator/Agentry.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>
