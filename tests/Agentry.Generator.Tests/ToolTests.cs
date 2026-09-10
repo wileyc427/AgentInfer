@@ -165,3 +165,77 @@ public sealed class ToolTests
         Assert.Contains("\"\"key\"\"", output);
     }
 }
+
+/// <summary>
+/// The generated dispatcher: typed binding, and no reflection anywhere.
+/// </summary>
+public sealed class InvokerTests
+{
+    private const string Source = """
+        using System.Threading;
+        using System.Threading.Tasks;
+        using Agentry;
+
+        namespace Demo;
+
+        public sealed class Tools
+        {
+            [AgentTool("Reads.")]
+            [RequiresPermission("read")]
+            public decimal TotalFor(string category, int year) => 0m;
+
+            [AgentTool("Writes.")]
+            [RequiresPermission("write")]
+            public Task SaveAsync(string key, CancellationToken ct = default) => Task.CompletedTask;
+        }
+
+        [Agent("You are terse.", Tools = typeof(Tools))]
+        public interface IAnalyst
+        {
+            [Prompt("Do it.")]
+            public Task<string> DoAsync();
+        }
+        """;
+
+    [Fact]
+    public void Arguments_are_read_with_accessors_chosen_at_compile_time()
+    {
+        var (output, _) = GeneratorHarness.Run(Source);
+
+        // The static type picked the accessor. Nothing inspects the method at
+        // run time, which is what lets the tool surface survive trimming.
+        Assert.Contains("""arguments.GetProperty(@"category").GetString()!""", output);
+        Assert.Contains("""arguments.GetProperty(@"year").GetInt32()""", output);
+    }
+
+    [Fact]
+    public void A_cancellation_token_is_passed_but_never_bound_from_json()
+    {
+        var (output, _) = GeneratorHarness.Run(Source);
+
+        Assert.Contains("_tools.SaveAsync(key, ct)", output);
+        Assert.DoesNotContain("""GetProperty(@"ct")""", output);
+    }
+
+    [Fact]
+    public void The_invoker_reuses_the_agents_manifest_rather_than_rebuilding_it()
+    {
+        var (output, _) = GeneratorHarness.Run(Source);
+        Assert.Contains("public override global::Agentry.ToolManifest Manifest => AnalystAgent.Tools;", output);
+    }
+
+    [Fact]
+    public void An_agent_with_no_tools_gets_no_invoker()
+    {
+        var (output, _) = GeneratorHarness.Run("""
+            using System.Threading.Tasks;
+            using Agentry;
+            [Agent("You are terse.")]
+            public interface IThing { [Prompt("Do it.")] public Task<string> DoAsync(); }
+            """);
+
+        // A dispatcher with nothing to dispatch is a class that exists to be
+        // confusing.
+        Assert.DoesNotContain("ToolInvoker", output);
+    }
+}
