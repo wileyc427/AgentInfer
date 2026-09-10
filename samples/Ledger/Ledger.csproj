@@ -16,6 +16,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Agentry/Agentry.csproj" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
 
     <!--
       The generator has to be referenced AGAIN, here, and this is the gotcha

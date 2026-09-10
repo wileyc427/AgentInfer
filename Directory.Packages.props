@@ -13,8 +13,16 @@
 
   <ItemGroup Label="Runtime">
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.10.0" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.10.0" />
+    <!--
+      One provider package covers OpenAI, Ollama, vLLM and anything else that
+      speaks the OpenAI wire format, because all of them take an endpoint. The
+      alternative — a package per provider — is the mistake the Python side
+      avoided by going through litellm.
+    -->
+    <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.10.0" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup Label="Generator">
