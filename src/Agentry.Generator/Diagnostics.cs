@@ -1,0 +1,71 @@
+using Microsoft.CodeAnalysis;
+
+namespace Agentry.Generator;
+
+/// <summary>
+/// The build errors that replace the other framework's runtime surprises.
+/// </summary>
+/// <remarks>
+/// This is the argument for the whole approach, so it is worth keeping the
+/// provenance next to each rule. Every descriptor below is a failure that
+/// actually happened while building a Python project against NOOA, moved from
+/// production to the build.
+/// <para>
+/// The corollary is a design rule: <b>a feature that cannot be diagnosed at
+/// compile time should be questioned before it is added.</b>
+/// </para>
+/// </remarks>
+internal static class Diagnostics
+{
+    private const string Category = "Agentry";
+
+    /// <summary>
+    /// NOOA equivalent: an f-string is not a docstring, so the class silently
+    /// inherits the framework's own internal prompt — about 1.5KB of CodeAct
+    /// boilerplate — with no error anywhere.
+    /// </summary>
+    public static readonly DiagnosticDescriptor MissingAgentPrompt = new(
+        id: "AGT001",
+        title: "Agent requires a system prompt",
+        messageFormat: "'{0}' has [Agent] with an empty prompt. The prompt is the only thing the model is told about who it is.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// NOOA equivalent: a method with no docstring gets an empty task prompt and
+    /// behaves almost right, which is worse than failing.
+    /// </summary>
+    public static readonly DiagnosticDescriptor MissingMethodPrompt = new(
+        id: "AGT002",
+        title: "Generation method requires [Prompt]",
+        messageFormat: "'{0}' is on an [Agent] interface but has no [Prompt]. Add one, or move the method off this interface.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// NOOA equivalent: a return annotation the strategy cannot satisfy fails on
+    /// the first call, after the model has been paid for.
+    /// </summary>
+    public static readonly DiagnosticDescriptor UnsupportedReturnType = new(
+        id: "AGT003",
+        title: "Unsupported return type",
+        messageFormat: "'{0}' returns '{1}'. A generation method must return Task<T>; T is the contract the reply is bound to.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// The one that cost a week: NOOA's default strategy executes model-written
+    /// code, so an undecorated method runs a REPL nobody asked for. Here CodeAct
+    /// is opt-in and, until P3, saying so is an error rather than a surprise.
+    /// </summary>
+    public static readonly DiagnosticDescriptor CodeActNotAvailable = new(
+        id: "AGT004",
+        title: "CodeAct is not implemented",
+        messageFormat: "'{0}' asks for Strategies.CodeAct, which needs a sandbox and a broker (P3). Use Predict, which is the default.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+}
