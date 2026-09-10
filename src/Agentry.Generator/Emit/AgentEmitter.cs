@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text;
 
 namespace Agentry.Generator.Emit;
@@ -64,6 +65,12 @@ internal static class AgentEmitter
         }
 
         code.AppendLine("}");
+
+        if (model.Tools.Count > 0)
+        {
+            EmitInvoker(code, model);
+        }
+
         return code.ToString();
     }
 
@@ -179,6 +186,110 @@ internal static class AgentEmitter
     }
 
     /// <summary>
+    /// Emits the dispatcher: a switch on the tool name, with typed binding.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the half that makes <c>[RequiresPermission]</c> enforceable
+    /// rather than declarative. The base class checks the permission before
+    /// this runs and filters the menu the model is sent before that, so a tool
+    /// the caller may not use is both invisible and unreachable.
+    /// </para>
+    /// <para>
+    /// Every argument is read with a <c>JsonElement</c> accessor chosen at
+    /// compile time from the parameter's static type. Nothing reflects over the
+    /// method, which is what lets the whole tool surface survive trimming — and
+    /// it means a tool whose signature changes is a build break here rather
+    /// than a binding failure in a trace.
+    /// </para>
+    /// </remarks>
+    private static void EmitInvoker(StringBuilder code, AgentModel model)
+    {
+        var name = model.ImplementationName + "Tools";
+        var toolsType = model.ToolsType;
+
+        code.AppendLine();
+        code.AppendLine("/// <summary>Dispatches this agent\'s tools. Generated.</summary>");
+        code.Append(model.Accessibility).Append(" sealed partial class ").Append(name)
+            .AppendLine(" : global::Agentry.ToolInvoker");
+        code.AppendLine("{");
+        code.Append("    private readonly ").Append(toolsType).AppendLine(" _tools;");
+        code.AppendLine();
+        code.Append("    public ").Append(name).Append('(').Append(toolsType)
+            .AppendLine(" tools) => _tools = tools;");
+        code.AppendLine();
+        code.Append("    public override global::Agentry.ToolManifest Manifest => ")
+            .Append(model.ImplementationName).AppendLine(".Tools;");
+        code.AppendLine();
+        code.AppendLine("    /// <inheritdoc/>");
+        code.AppendLine("    protected override async global::System.Threading.Tasks.Task<string> DispatchAsync(");
+        code.AppendLine("        string name,");
+        code.AppendLine("        global::System.Text.Json.JsonElement arguments,");
+        code.AppendLine("        global::System.Threading.CancellationToken ct)");
+        code.AppendLine("    {");
+        code.AppendLine("        switch (name)");
+        code.AppendLine("        {");
+
+        foreach (var tool in model.Tools)
+        {
+            EmitCase(code, tool);
+        }
+
+        code.AppendLine("            default:");
+        code.AppendLine("                // Unreachable: the base class matches the name against the");
+        code.AppendLine("                // manifest first. Here so a tool added to one and not the");
+        code.AppendLine("                // other fails loudly instead of returning null.");
+        code.AppendLine("                throw new global::System.InvalidOperationException($\"No dispatch for \'{name}\'.\");");
+        code.AppendLine("        }");
+        code.AppendLine("    }");
+        code.AppendLine("}");
+    }
+
+    private static void EmitCase(StringBuilder code, ToolModel tool)
+    {
+        code.Append("            case ").Append(Literal(tool.Name)).AppendLine(":");
+        code.AppendLine("            {");
+
+        foreach (var parameter in tool.Parameters)
+        {
+            code.Append("                var ").Append(parameter.Name).Append(" = arguments.GetProperty(")
+                .Append(Literal(parameter.Name)).Append(").").Append(parameter.Reader).AppendLine(";");
+        }
+
+        var args = string.Join(", ", tool.Parameters.Select(p => p.Name)
+            .Concat(tool.TakesCancellationToken ? ["ct"] : System.Array.Empty<string>()));
+
+        var call = $"_tools.{tool.Name}({args})";
+
+        switch (tool.Return)
+        {
+            case ToolReturn.None:
+                code.Append("                ").Append(call).AppendLine(";");
+                code.AppendLine("                await global::System.Threading.Tasks.Task.CompletedTask.ConfigureAwait(false);");
+                code.AppendLine("                return \"done\";");
+                break;
+
+            case ToolReturn.AwaitedNone:
+                code.Append("                await ").Append(call).AppendLine(".ConfigureAwait(false);");
+                code.AppendLine("                return \"done\";");
+                break;
+
+            case ToolReturn.AwaitedValue:
+                code.Append("                var result = await ").Append(call).AppendLine(".ConfigureAwait(false);");
+                code.AppendLine("                return global::System.Text.Json.JsonSerializer.Serialize(result);");
+                break;
+
+            default:
+                code.Append("                var result = ").Append(call).AppendLine(";");
+                code.AppendLine("                await global::System.Threading.Tasks.Task.CompletedTask.ConfigureAwait(false);");
+                code.AppendLine("                return global::System.Text.Json.JsonSerializer.Serialize(result);");
+                break;
+        }
+
+        code.AppendLine("            }");
+    }
+
+    /// <summary>
     /// A verbatim string literal, with quotes doubled.
     /// </summary>
     /// <remarks>
@@ -189,3 +300,4 @@ internal static class AgentEmitter
     /// </remarks>
     private static string Literal(string value) => "@\"" + value.Replace("\"", "\"\"") + "\"";
 }
+

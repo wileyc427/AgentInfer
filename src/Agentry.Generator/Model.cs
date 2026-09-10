@@ -28,7 +28,8 @@ internal sealed record AgentModel(
     string Accessibility,
     string SystemPrompt,
     EquatableArray<MethodModel> Methods,
-    EquatableArray<ToolModel> Tools);
+    EquatableArray<ToolModel> Tools,
+    string ToolsType);
 
 internal sealed record MethodModel(
     string Name,

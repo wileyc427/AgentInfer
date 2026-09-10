@@ -70,6 +70,31 @@ internal static class SchemaWriter
     /// about cycles, and a half-correct object schema is worse than a build
     /// error that says to flatten the parameter.
     /// </remarks>
+    /// <summary>
+    /// The <c>JsonElement</c> accessor for a parameter, chosen at compile time.
+    /// </summary>
+    /// <remarks>
+    /// Paired with <see cref="JsonTypeFor"/> and kept beside it deliberately: a
+    /// type that gains a schema entry but no reader would emit dispatch that
+    /// does not compile, and the two drifting apart is the obvious way for that
+    /// to happen.
+    /// </remarks>
+    public static string? ReaderFor(ITypeSymbol type) => type.SpecialType switch
+    {
+        SpecialType.System_String => "GetString()!",
+        SpecialType.System_Boolean => "GetBoolean()",
+        SpecialType.System_Int32 => "GetInt32()",
+        SpecialType.System_Int64 => "GetInt64()",
+        SpecialType.System_Double => "GetDouble()",
+        SpecialType.System_Single => "GetSingle()",
+        SpecialType.System_Decimal => "GetDecimal()",
+        _ when type is IArrayTypeSymbol array && ReaderFor(array.ElementType) is { } element =>
+            $"EnumerateArray().Select(e => e.{element}).ToArray()",
+        _ when type.TypeKind == TypeKind.Enum =>
+            $"GetString() is {{ }} s ? ({type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})global::System.Enum.Parse(typeof({type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}), s, true) : default",
+        _ => null,
+    };
+
     private static string? JsonTypeFor(ITypeSymbol type) => type.SpecialType switch
     {
         SpecialType.System_String => "string",

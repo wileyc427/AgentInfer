@@ -101,7 +101,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
             if (method is not null) methods.Add(method);
         }
 
-        var tools = ReadTools(ctx, diagnostics, ct);
+        var tools = ReadTools(ctx, diagnostics, ct, out var toolsType);
         var implementationName = ImplementationNameFor(type, ctx);
 
         // A model is still produced alongside errors so the IDE keeps offering
@@ -116,7 +116,8 @@ public sealed class AgentGenerator : IIncrementalGenerator
             Accessibility: type.DeclaredAccessibility == Microsoft.CodeAnalysis.Accessibility.Public ? "public" : "internal",
             SystemPrompt: systemPrompt,
             Methods: new EquatableArray<MethodModel>(methods.ToImmutable()),
-            Tools: tools);
+            Tools: tools,
+            ToolsType: toolsType);
 
         return new Result(model, new EquatableArray<Diagnostic>(diagnostics.ToImmutable()));
     }
@@ -133,12 +134,17 @@ public sealed class AgentGenerator : IIncrementalGenerator
     private static EquatableArray<ToolModel> ReadTools(
         GeneratorAttributeSyntaxContext ctx,
         ImmutableArray<Diagnostic>.Builder diagnostics,
-        CancellationToken ct)
+        CancellationToken ct,
+        out string toolsTypeName)
     {
+        toolsTypeName = string.Empty;
+
         var toolsType = ctx.Attributes.FirstOrDefault()?.NamedArguments
             .FirstOrDefault(pair => pair.Key == "Tools").Value.Value as INamedTypeSymbol;
 
         if (toolsType is null) return new EquatableArray<ToolModel>(ImmutableArray<ToolModel>.Empty);
+
+        toolsTypeName = toolsType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
         var tools = ImmutableArray.CreateBuilder<ToolModel>();
 
@@ -182,14 +188,49 @@ public sealed class AgentGenerator : IIncrementalGenerator
                     Diagnostics.MissingToolPermission, Location(method), Display(method)));
             }
 
+            var parameters = ImmutableArray.CreateBuilder<ToolParameterModel>();
+            var takesToken = false;
+
+            foreach (var parameter in method.Parameters)
+            {
+                if (parameter.Type.ToDisplayString() == "System.Threading.CancellationToken")
+                {
+                    takesToken = true;
+                    continue;
+                }
+
+                parameters.Add(new ToolParameterModel(
+                    parameter.Name,
+                    parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                    SchemaWriter.ReaderFor(parameter.Type)!));
+            }
+
             tools.Add(new ToolModel(
                 Name: method.Name,
                 Description: toolAttribute.ConstructorArguments.FirstOrDefault().Value as string ?? string.Empty,
                 ParametersSchema: schema,
-                Permissions: new EquatableArray<string>(permissions)));
+                Permissions: new EquatableArray<string>(permissions),
+                Parameters: new EquatableArray<ToolParameterModel>(parameters.ToImmutable()),
+                Return: ReturnOf(method),
+                TakesCancellationToken: takesToken));
         }
 
         return new EquatableArray<ToolModel>(tools.ToImmutable());
+    }
+
+    /// <summary>How the invoker has to treat this tool's result.</summary>
+    private static ToolReturn ReturnOf(IMethodSymbol method)
+    {
+        var type = method.ReturnType;
+
+        if (type.SpecialType == SpecialType.System_Void) return ToolReturn.None;
+
+        if (type is INamedTypeSymbol named && named.ToDisplayString().StartsWith("System.Threading.Tasks.Task", StringComparison.Ordinal))
+        {
+            return named.IsGenericType ? ToolReturn.AwaitedValue : ToolReturn.AwaitedNone;
+        }
+
+        return ToolReturn.Value;
     }
 
     private static MethodModel? ReadMethod(IMethodSymbol method, ImmutableArray<Diagnostic>.Builder diagnostics)
