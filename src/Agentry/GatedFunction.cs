@@ -28,13 +28,19 @@ internal sealed class GatedFunction : AIFunction
     private readonly ToolDescriptor _descriptor;
     private readonly ToolInvoker _invoker;
     private readonly IToolAuthorizer _authorizer;
+    private readonly ToolCallLog _log;
     private readonly JsonElement _schema;
 
-    public GatedFunction(ToolDescriptor descriptor, ToolInvoker invoker, IToolAuthorizer authorizer)
+    public GatedFunction(
+        ToolDescriptor descriptor,
+        ToolInvoker invoker,
+        IToolAuthorizer authorizer,
+        ToolCallLog log)
     {
         _descriptor = descriptor;
         _invoker = invoker;
         _authorizer = authorizer;
+        _log = log;
 
         // Parsed once. The string came from the generator and cannot change.
         _schema = JsonDocument.Parse(descriptor.ParametersSchema).RootElement.Clone();
@@ -60,10 +66,23 @@ internal sealed class GatedFunction : AIFunction
 
         try
         {
-            return await _invoker.InvokeAsync(Name, json, _authorizer, cancellationToken).ConfigureAwait(false);
+            var result = await _invoker.InvokeAsync(Name, json, _authorizer, cancellationToken)
+                .ConfigureAwait(false);
+
+            // Counted here rather than in the invoker: the invoker outlives the
+            // call, and "calls per turn" is the distribution that matters.
+            _log.Record(Name, denied: false);
+            AgentMetrics.ToolCalls.Add(1, new KeyValuePair<string, object?>("tool", Name),
+                new KeyValuePair<string, object?>("outcome", "ok"));
+
+            return result;
         }
         catch (ToolDeniedException denied)
         {
+            _log.Record(Name, denied: true);
+            AgentMetrics.ToolCalls.Add(1, new KeyValuePair<string, object?>("tool", Name),
+                new KeyValuePair<string, object?>("outcome", "denied"));
+
             // Returned rather than thrown. A denial is information the model
             // should have — it stops asking and says what it could not do —
             // whereas an exception aborts a turn the person is waiting on. The

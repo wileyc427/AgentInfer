@@ -18,6 +18,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      ToolCallLog.Record stays internal: consumers read the log, they never
+      write it. Widening the API so a test can reach it would be letting the
+      test shape the surface.
+    -->
+    <InternalsVisibleTo Include="Agentry.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.AI" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />

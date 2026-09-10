@@ -27,7 +27,7 @@ namespace Agentry;
 /// </remarks>
 public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger = null)
 {
-    private static readonly ActivitySource Activity = new("Agentry");
+    private static readonly ActivitySource Source = new("Agentry");
 
     private readonly IChatClient _client = client ?? throw new ArgumentNullException(nameof(client));
     private readonly ILogger _logger = (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
@@ -40,7 +40,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     /// </remarks>
     public async Task<string> CompleteTextAsync(AgentCall call, CancellationToken ct = default)
     {
-        using var activity = Activity.StartActivity(call.Operation);
+        using var activity = Source.StartActivity(call.Operation);
         var started = Stopwatch.GetTimestamp();
 
         var response = await _client.GetResponseAsync(Build(call, json: false), cancellationToken: ct)
@@ -66,7 +66,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         JsonSerializerOptions? options = null,
         CancellationToken ct = default)
     {
-        using var activity = Activity.StartActivity(call.Operation);
+        using var activity = Source.StartActivity(call.Operation);
         var started = Stopwatch.GetTimestamp();
 
         var response = await _client.GetResponseAsync(Build(call, json: true), cancellationToken: ct)
@@ -129,7 +129,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         ArgumentNullException.ThrowIfNull(authorizer);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxIterations, 1);
 
-        using var activity = Activity.StartActivity(call.Operation);
+        using var activity = Source.StartActivity(call.Operation);
         var started = Stopwatch.GetTimestamp();
 
         return await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, started, ct)
@@ -164,7 +164,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         ArgumentNullException.ThrowIfNull(authorizer);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxIterations, 1);
 
-        using var activity = Activity.StartActivity(call.Operation);
+        using var activity = Source.StartActivity(call.Operation);
         var started = Stopwatch.GetTimestamp();
 
         var text = await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: true, started, ct)
@@ -183,15 +183,15 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         CancellationToken ct)
     {
         var available = invoker.AvailableTo(authorizer);
-        _logger.LogInformation(
-            "{Operation} offering {Count} of {Total} tools",
-            call.Operation,
-            available.Count,
-            invoker.Manifest.Tools.Count);
+
+        // One log per generation method call, because "calls per turn" is the
+        // distribution that decides whether this workload ever needs the model
+        // to write code. A counter shared across turns cannot produce it.
+        var log = new ToolCallLog { Offered = available.Count, Total = invoker.Manifest.Tools.Count };
 
         var options = new ChatOptions
         {
-            Tools = [.. available.Select(d => new GatedFunction(d, invoker, authorizer))],
+            Tools = [.. available.Select(d => new GatedFunction(d, invoker, authorizer, log))],
         };
 
         using var looping = new FunctionInvokingChatClient(_client)
@@ -204,8 +204,44 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         var response = await looping.GetResponseAsync(Build(call, json), options, ct).ConfigureAwait(false);
 
         var text = response.Text ?? string.Empty;
+        // Activity.Current, not a parameter: the span was started by whichever
+        // public method the caller entered through, and threading it down would
+        // be plumbing to reach something already ambient.
+        Record(call, log);
         Log(call, started, text.Length);
         return text;
+    }
+
+    /// <summary>
+    /// Emits what the turn actually cost in tool calls.
+    /// </summary>
+    /// <remarks>
+    /// The log line is for eyeballing during development; the histogram is for
+    /// deciding. Its p95 across a real workload is the number that says whether
+    /// composing tool calls in generated code would buy anything — which is a
+    /// question worth answering with data rather than with taste, because the
+    /// answer changes what gets built next.
+    /// </remarks>
+    private void Record(AgentCall call, ToolCallLog log)
+    {
+        var activity = Activity.Current;
+        var operation = new KeyValuePair<string, object?>("operation", call.Operation);
+
+        AgentMetrics.CallsPerTurn.Record(log.Invocations, operation);
+        AgentMetrics.ToolsOffered.Record(log.Offered, operation);
+
+        activity?.SetTag("agentry.tools.offered", log.Offered);
+        activity?.SetTag("agentry.tool.calls", log.Invocations);
+        activity?.SetTag("agentry.tool.denials", log.Denials);
+
+        _logger.LogInformation(
+            "{Operation}: {Offered} of {Total} tools offered, {Calls} call(s){Denied} — {Breakdown}",
+            call.Operation,
+            log.Offered,
+            log.Total,
+            log.Invocations,
+            log.Denials > 0 ? $", {log.Denials} denied" : string.Empty,
+            log);
     }
 
     private static ChatMessage[] Build(AgentCall call, bool json)

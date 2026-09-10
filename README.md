@@ -175,6 +175,40 @@ verdict: approved=True score=4/5
 `Reclassify` requires `ledger.write`, so it is absent from what the model was
 told — not refused, absent.
 
+## Measuring whether you need generated code
+
+Every generation method logs what the turn actually cost:
+
+```
+ILedger.SummariseAsync: 1 of 2 tools offered, 4 call(s) — TotalFor×4
+```
+
+and records three instruments under the `Agentry` meter, so the same numbers
+reach whatever OpenTelemetry pipeline the host already runs:
+
+| Instrument | |
+| --- | --- |
+| `agentry.tool.calls_per_turn` | histogram — **the number that decides** |
+| `agentry.tools.offered` | histogram — how much permissions narrowed the menu |
+| `agentry.tool.calls` | counter, tagged by tool and outcome |
+
+Letting a model compose tool calls in code it writes buys exactly one thing —
+fewer round trips — at the cost of executing that code. Obviously worth it at
+fifteen calls a turn; obviously not at two. **Count first, decide after.** The
+p95 of `calls_per_turn` on a real workload is the whole argument.
+
+### One thing the counting revealed
+
+Within a single call, **filtering the menu is what enforces a permission**. A
+tool the caller may not use is not in `ChatOptions.Tools`, so there is no
+`AIFunction` by that name for the loop to invoke — it never reaches the check
+inside `GatedFunction`, and the log records zero calls rather than a denial.
+
+The check still earns its place, just not there: it fires when an invoker
+outlives a permission change between turns, or when something calls
+`InvokeAsync` directly. Worth knowing which of the two gates is load-bearing
+where.
+
 ## Build
 
 Needs the .NET 10 SDK.
