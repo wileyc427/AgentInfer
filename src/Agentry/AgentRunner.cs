@@ -91,6 +91,68 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         }
     }
 
+    /// <summary>
+    /// Runs a method that may call tools, and returns its text.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The loop is <c>FunctionInvokingChatClient</c>'s, not ours. It is the
+    /// platform's, it is well tested, and it already handles parallel calls and
+    /// per-call failures — writing a second one would be the same mistake as
+    /// wrapping <see cref="IChatClient"/>.
+    /// </para>
+    /// <para>
+    /// Authorization does not depend on that choice. The gate lives inside
+    /// <see cref="GatedFunction"/>, so whichever loop drives, the only route to
+    /// a tool is through the check. The menu handed over is already filtered by
+    /// <see cref="ToolInvoker.AvailableTo"/>, so the model is never told about
+    /// tools this caller may not use — and the function checks again anyway,
+    /// because a conversation can outlive a permission.
+    /// </para>
+    /// </remarks>
+    public async Task<string> CompleteWithToolsAsync(
+        AgentCall call,
+        ToolInvoker invoker,
+        IToolAuthorizer authorizer,
+        int maxIterations = 6,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(invoker);
+        ArgumentNullException.ThrowIfNull(authorizer);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxIterations, 1);
+
+        using var activity = Activity.StartActivity(call.Operation);
+        var started = Stopwatch.GetTimestamp();
+
+        var available = invoker.AvailableTo(authorizer);
+        _logger.LogInformation(
+            "{Operation} offering {Count} of {Total} tools",
+            call.Operation,
+            available.Count,
+            invoker.Manifest.Tools.Count);
+
+        var options = new ChatOptions
+        {
+            Tools = [.. available.Select(d => new GatedFunction(d, invoker, authorizer))],
+            // The bound that stops a model and a tool trading turns until
+            // something else does. Low by default for the same reason the
+            // revision loop's was.
+            MaxOutputTokens = null,
+        };
+
+        using var looping = new FunctionInvokingChatClient(_client)
+        {
+            MaximumIterationsPerRequest = maxIterations,
+        };
+
+        var response = await looping.GetResponseAsync(Build(call, json: false), options, ct)
+            .ConfigureAwait(false);
+
+        var text = response.Text ?? string.Empty;
+        Log(call, started, text.Length);
+        return text;
+    }
+
     private static ChatMessage[] Build(AgentCall call, bool json)
     {
         var user = new StringBuilder(call.TaskPrompt);
