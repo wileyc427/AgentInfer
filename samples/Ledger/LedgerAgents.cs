@@ -13,7 +13,8 @@ public sealed record Verdict(bool Approved, int Score, string[] Problems);
     You answer questions about a household ledger.
     Use only figures you were given. Never invent an amount.
     Answer in one or two sentences with the actual numbers in them.
-    """)]
+    """,
+    Tools = typeof(LedgerTools))]
 public interface ILedgerAnalyst
 {
     /// <summary>Returns prose, so no schema and no parsing is involved.</summary>

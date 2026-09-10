@@ -28,9 +28,10 @@ Design reasoning lives in
 
 ## Where it is
 
-**P1, partially.** The generator, the attributes, and a Predict runtime over
-`Microsoft.Extensions.AI`. No tools, no authorization, no sandbox — those are
-P2 and P3 and they are not started.
+**P1 done, P2 started.** The generator, the attributes, a Predict runtime over
+`Microsoft.Extensions.AI`, and a real model call verified end to end. `[AgentTool]`
+discovery and compile-time schemas are in; the function-calling loop and the
+authorization facades are not. No sandbox — that is P3 and it is not started.
 
 | Package | What it is |
 | --- | --- |
@@ -59,10 +60,55 @@ through to a base class's prompt the way a Python docstring silently can.
 | `AGT002` Method requires `[Prompt]` | an empty task prompt; the method behaves almost right |
 | `AGT003` Must return `Task<T>` | a return annotation the strategy cannot satisfy, discovered after paying for a call |
 | `AGT004` CodeAct is not implemented | an undecorated method silently executing generated code |
+| `AGT005` Unsupported tool parameter | a model sending a shape the parameter cannot take, learned from a trace |
+| `AGT006` Tool requires `[RequiresPermission]` | `@hidden`, which keeps a method out of the docs and leaves it callable |
 
 Each row is a real failure from building against NOOA, moved from production to
 the build. The corollary is a rule this repo tries to hold: **a feature that
 cannot be diagnosed at compile time should be questioned before it is added.**
+
+## Tools
+
+```csharp
+public sealed class LedgerTools
+{
+    [AgentTool("The total spent in one category.")]
+    [RequiresPermission("ledger.read")]
+    public decimal TotalFor(string category) => ...;
+
+    public string DebugDump() => ...;   // no attribute, so invisible and unreachable
+}
+
+[Agent("...", Tools = typeof(LedgerTools))]
+public interface ILedgerAnalyst { ... }
+```
+
+The generator emits a `ToolManifest` as a **static property built at compile
+time**, with a JSON Schema string per tool:
+
+```csharp
+public static ToolManifest Tools { get; } = new(new ToolDescriptor[]
+{
+    new(@"TotalFor",
+        @"The total spent in one category.",
+        @"{""type"":""object"",""properties"":{""category"":{""type"":""string""}},""required"":[""category""],""additionalProperties"":false}",
+        new string[] { @"ledger.read" }),
+});
+```
+
+That schema is the differentiating piece. The usual way to get one is
+reflecting over the method at startup — which is what `AIFunctionFactory.Create`
+does, and it works until somebody publishes trimmed and the parameter metadata
+is gone. Here there is nothing to reflect over and nothing to trim, and it is
+visible in review.
+
+Tools are opt-in one method at a time. A public method without `[AgentTool]` is
+**absent** from the manifest, not hidden from documentation while remaining
+callable — which is what NOOA's `@hidden` actually does.
+
+Still to come in P2: the function-calling loop (`ChatOptions.Tools` and
+dispatch) and the per-permission facades that make `[RequiresPermission]`
+enforceable rather than declarative.
 
 ## Build
 

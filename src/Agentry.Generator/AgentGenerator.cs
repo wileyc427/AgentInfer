@@ -39,6 +39,8 @@ public sealed class AgentGenerator : IIncrementalGenerator
     private const string AgentAttribute = "Agentry.AgentAttribute";
     private const string PromptAttribute = "Agentry.PromptAttribute";
     private const string StrategyAttribute = "Agentry.StrategyAttribute";
+    private const string AgentToolAttribute = "Agentry.AgentToolAttribute";
+    private const string RequiresPermissionAttribute = "Agentry.RequiresPermissionAttribute";
 
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -99,6 +101,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
             if (method is not null) methods.Add(method);
         }
 
+        var tools = ReadTools(ctx, diagnostics, ct);
         var implementationName = ImplementationNameFor(type, ctx);
 
         // A model is still produced alongside errors so the IDE keeps offering
@@ -112,9 +115,81 @@ public sealed class AgentGenerator : IIncrementalGenerator
             ImplementationName: implementationName,
             Accessibility: type.DeclaredAccessibility == Microsoft.CodeAnalysis.Accessibility.Public ? "public" : "internal",
             SystemPrompt: systemPrompt,
-            Methods: new EquatableArray<MethodModel>(methods.ToImmutable()));
+            Methods: new EquatableArray<MethodModel>(methods.ToImmutable()),
+            Tools: tools);
 
         return new Result(model, new EquatableArray<Diagnostic>(diagnostics.ToImmutable()));
+    }
+
+    /// <summary>
+    /// Reads the <c>[AgentTool]</c> methods on whatever <c>[Agent(Tools = ...)]</c> names.
+    /// </summary>
+    /// <remarks>
+    /// Named on the agent rather than discovered assembly-wide, so "what may
+    /// this agent reach" is answerable by reading one line rather than by
+    /// grepping. The schema for each is built here, while the symbols are in
+    /// hand, and travels onward as text.
+    /// </remarks>
+    private static EquatableArray<ToolModel> ReadTools(
+        GeneratorAttributeSyntaxContext ctx,
+        ImmutableArray<Diagnostic>.Builder diagnostics,
+        CancellationToken ct)
+    {
+        var toolsType = ctx.Attributes.FirstOrDefault()?.NamedArguments
+            .FirstOrDefault(pair => pair.Key == "Tools").Value.Value as INamedTypeSymbol;
+
+        if (toolsType is null) return new EquatableArray<ToolModel>(ImmutableArray<ToolModel>.Empty);
+
+        var tools = ImmutableArray.CreateBuilder<ToolModel>();
+
+        foreach (var method in toolsType.GetMembers().OfType<IMethodSymbol>())
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var toolAttribute = method.GetAttributes()
+                .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == AgentToolAttribute);
+
+            // Opt-in, one method at a time. Nothing is exposed to a model
+            // because it happens to be public: a public method is a contract
+            // with other code, which is a different proposition from a menu
+            // item handed to something trying to be helpful.
+            if (toolAttribute is null) continue;
+
+            var schema = SchemaWriter.TryWrite(method, out var unsupported);
+            if (schema is null)
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    Diagnostics.UnsupportedToolParameter,
+                    Location(unsupported!),
+                    Display(method),
+                    unsupported!.Type.ToDisplayString(),
+                    unsupported.Name));
+                continue;
+            }
+
+            var permissions = method.GetAttributes()
+                .Where(a => a.AttributeClass?.ToDisplayString() == RequiresPermissionAttribute)
+                .Select(a => a.ConstructorArguments.FirstOrDefault().Value as string ?? string.Empty)
+                .Where(p => p.Length > 0)
+                .ToImmutableArray();
+
+            if (permissions.IsEmpty)
+            {
+                // A warning rather than an error: a tool with no permission is a
+                // decision somebody may legitimately make, and it should be one
+                // they made rather than one they defaulted into.
+                diagnostics.Add(Diagnostic.Create(
+                    Diagnostics.MissingToolPermission, Location(method), Display(method)));
+            }
+
+            tools.Add(new ToolModel(
+                Name: method.Name,
+                Description: toolAttribute.ConstructorArguments.FirstOrDefault().Value as string ?? string.Empty,
+                ParametersSchema: schema,
+                Permissions: new EquatableArray<string>(permissions)));
+        }
+
+        return new EquatableArray<ToolModel>(tools.ToImmutable());
     }
 
     private static MethodModel? ReadMethod(IMethodSymbol method, ImmutableArray<Diagnostic>.Builder diagnostics)
