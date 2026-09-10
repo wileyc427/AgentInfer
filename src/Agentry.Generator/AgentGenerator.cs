@@ -299,13 +299,20 @@ public sealed class AgentGenerator : IIncrementalGenerator
             parameters.Add(new ParameterModel(parameter.Name, type, isString));
         }
 
+        // Reused for the tool loop, not just CodeAct. A method that can call
+        // tools can trade turns with them, and that needs a bound wherever the
+        // turns come from.
+        var maxIterations = strategy?.NamedArguments
+            .FirstOrDefault(pair => pair.Key == "MaxIterations").Value.Value as int? ?? 6;
+
         return new MethodModel(
             Name: method.Name,
             TaskPrompt: promptAttribute.ConstructorArguments.FirstOrDefault().Value as string ?? string.Empty,
             Shape: shape,
             ReturnType: returnType,
             Parameters: new EquatableArray<ParameterModel>(parameters.ToImmutable()),
-            CancellationTokenParameter: cancellationToken);
+            CancellationTokenParameter: cancellationToken,
+            MaxIterations: maxIterations);
     }
 
     private static bool TryReadReturn(ITypeSymbol returnType, out ReturnShape shape, out string type)
