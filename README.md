@@ -51,7 +51,9 @@ nobody had reviewed. Opting into code execution has to be visible.
 **Prompts are string constants, not doc comments.** C# strips XML docs into a
 separate file that is unreachable at run time. That reads like a handicap and
 is the opposite: a constant survives compilation and trimming, and cannot fall
-through to a base class's prompt the way a Python docstring silently can.
+through to a base class's prompt the way a Python docstring silently can. A
+prompt too long to want to live in an attribute goes in a file and is still a
+constant — see [Prompts in files](#prompts-in-files).
 
 ## The diagnostics are the product
 
@@ -63,10 +65,69 @@ through to a base class's prompt the way a Python docstring silently can.
 | `AGT004` CodeAct is not implemented | an undecorated method silently executing generated code |
 | `AGT005` Unsupported tool parameter | a model sending a shape the parameter cannot take, learned from a trace |
 | `AGT006` Tool requires `[RequiresPermission]` | `@hidden`, which keeps a method out of the docs and leaves it callable |
+| `AGT007` Prompt file is not in `AdditionalFiles` | a prompt file the compiler cannot see, sitting visibly in the project |
+| `AGT008` Both a prompt and a `PromptFile` | two sources for one string, one of them stale, neither obviously the winner |
+| `AGT009` Prompt file matches more than one entry | a path that names two files and picks one of them quietly |
 
 Each row is a real failure from building against NOOA, moved from production to
 the build. The corollary is a rule this repo tries to hold: **a feature that
 cannot be diagnosed at compile time should be questioned before it is added.**
+
+## Prompts in files
+
+A system prompt grows. At some length it wants markdown, and a raw string
+literal inside an attribute stops being the right home for it:
+
+```csharp
+[Agent(PromptFile = "Prompts/ledger-analyst.md", Tools = typeof(LedgerTools))]
+public interface ILedgerAnalyst { ... }
+```
+
+The generator reads the file **during compilation** and emits the same constant
+an inline prompt produces. The generated file says where the text came from:
+
+```csharp
+// Prompt read at compile time from: Prompts/ledger-analyst.md
+public sealed partial class LedgerAnalystAgent : ILedgerAnalyst
+{
+    private const string SystemPrompt = @"You answer questions about a household ledger.
+    ...
+```
+
+So nothing is opened at run time, and trimming, AOT, and *the prompt in the
+binary is the prompt that ran* all hold exactly as they do for an inline prompt.
+**This buys authoring, not deployment.** Changing a prompt is still a recompile.
+If what you want is tuning prompts without a redeploy, this is not that feature,
+and that feature trades away the audit property above.
+
+The compiler only sees files listed in `AdditionalFiles`. The package ships a
+`buildTransitive` targets file that adds `Prompts/**/*.md` for you:
+
+```xml
+<!-- opt out entirely -->
+<AgentryIncludePromptFiles>false</AgentryIncludePromptFiles>
+
+<!-- or point it somewhere else -->
+<AgentryPromptFiles>Agents/**/*.prompt</AgentryPromptFiles>
+```
+
+Anything outside that glob needs a line in the project file, and `AGT007` says
+so with the line to paste. Paths in the attribute are relative to the project
+directory; the generator resolves them against `ProjectDir`, which the SDK
+already makes visible to analyzers.
+
+Two deliberate limits:
+
+- **Method prompts and tool descriptions stay in attributes.** They are
+  one-liners that belong next to the signature they describe. Splitting the
+  prompt surface across a file *and* the attributes would mean inventing a
+  sectioned file format, which means a parser and a diagnostic for every
+  missing section.
+- **No templating.** Arguments reach the model as separate values appended to
+  the user message, never spliced into the system prompt — which is why an
+  argument cannot rewrite the agent's instructions. Prompt files do not change
+  that, and `{{placeholder}}` is a substantially larger commitment than file
+  I/O.
 
 ## Tools
 
