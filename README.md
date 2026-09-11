@@ -241,10 +241,26 @@ a record with **null** in the non-nullable `Problems` slot, and the caller's
 same reply fails at the boundary with a message naming the missing property and
 quoting what the model said.
 
-This covers **shape, not semantics**: that reply also scored 0 out of an
-intended 1–5 and nothing objected, because no range was declared. Value
-constraints need DataAnnotations run after binding — worth doing, and a separate
-decision from making the type itself honest.
+**Shape is not the same as meaning.** A later run answered `score: 100` out of
+five and bound cleanly, because 100 is a perfectly good integer.
+`[Range(1, 5)]` now does double duty — it is written into the schema the model
+is given, and it is checked after binding:
+
+```csharp
+public sealed record Verdict(
+    bool Approved,
+    [property: Range(1, 5)] int Score,
+    string[] Problems);
+```
+
+```json
+"score":{"type":"integer","minimum":1,"maximum":5}
+```
+
+`[MaxLength]` becomes `maxLength` on a string and `maxItems` on a collection —
+the same attribute, the right keyword, because a schema the model cannot satisfy
+is as bad as a validator that disagrees with it. DataAnnotations rather than a
+vocabulary of our own: it is already what a .NET developer reaches for.
 
 **The model was never told the schema.** With binding enforced, the next run
 failed with `missing required properties: 'approved', 'score', 'problems'` and

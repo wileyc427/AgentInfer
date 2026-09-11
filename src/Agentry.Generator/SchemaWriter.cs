@@ -144,6 +144,8 @@ internal static class SchemaWriter
                 var described = Describe(member.Type, seen, depth + 1);
                 if (described is null) return null;
 
+                described = WithConstraints(described, member);
+
                 if (!first)
                 {
                     properties.Append(',');
@@ -165,6 +167,74 @@ internal static class SchemaWriter
             seen.Remove(key);
         }
     }
+
+    /// <summary>
+    /// Folds DataAnnotations on a property into its schema.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A schema of <c>{"type":"integer"}</c> is a shape and not a contract. A
+    /// real run answered <c>score: 100</c> to a field meant to be 1–5, and it
+    /// bound cleanly, because 100 is a perfectly good integer.
+    /// </para>
+    /// <para>
+    /// DataAnnotations rather than a vocabulary of our own: <c>[Range]</c> is
+    /// already what a .NET developer reaches for, it is already understood by
+    /// model binding and validation, and the same attribute now does double
+    /// duty — it tells the model the bound and it is checked after binding.
+    /// </para>
+    /// </remarks>
+    private static string WithConstraints(string schema, IPropertySymbol property)
+    {
+        var extra = new StringBuilder();
+
+        foreach (var attribute in property.GetAttributes())
+        {
+            var name = attribute.AttributeClass?.ToDisplayString();
+
+            switch (name)
+            {
+                case "System.ComponentModel.DataAnnotations.RangeAttribute"
+                    when attribute.ConstructorArguments.Length >= 2:
+                    Append(extra, "minimum", attribute.ConstructorArguments[0].Value);
+                    Append(extra, "maximum", attribute.ConstructorArguments[1].Value);
+                    break;
+
+                case "System.ComponentModel.DataAnnotations.MinLengthAttribute"
+                    when attribute.ConstructorArguments.Length >= 1:
+                    Append(extra, LengthKeyword(property, "min"), attribute.ConstructorArguments[0].Value);
+                    break;
+
+                case "System.ComponentModel.DataAnnotations.MaxLengthAttribute"
+                    when attribute.ConstructorArguments.Length >= 1:
+                    Append(extra, LengthKeyword(property, "max"), attribute.ConstructorArguments[0].Value);
+                    break;
+            }
+        }
+
+        if (extra.Length == 0) return schema;
+
+        // Splice before the closing brace: the schema is a flat object here, so
+        // string surgery is honest rather than a shortcut around a parser.
+        return schema.Substring(0, schema.Length - 1) + extra + "}";
+    }
+
+    private static void Append(StringBuilder target, string keyword, object? value)
+    {
+        if (value is null) return;
+        target.Append(",\"").Append(keyword).Append("\":").Append(Invariant(value));
+    }
+
+    /// <summary>`minLength` for a string, `minItems` for a collection.</summary>
+    private static string LengthKeyword(IPropertySymbol property, string prefix) =>
+        property.Type.SpecialType == SpecialType.System_String
+            ? prefix + "Length"
+            : prefix + "Items";
+
+    private static string Invariant(object value) =>
+        value is bool flag
+            ? (flag ? "true" : "false")
+            : System.Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "null";
 
     /// <summary>The element of an <c>IEnumerable&lt;T&gt;</c>-shaped type.</summary>
     private static ITypeSymbol? ElementOfList(ITypeSymbol type) =>

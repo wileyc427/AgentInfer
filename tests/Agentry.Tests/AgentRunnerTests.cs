@@ -103,6 +103,31 @@ public sealed class AgentRunnerTests
     private const string ReportSchema =
         """{"type":"object","properties":{"approved":{"type":"boolean"}},"required":["approved"],"additionalProperties":false}""";
 
+    private sealed record Scored(bool Approved, [property: System.ComponentModel.DataAnnotations.Range(1, 5)] int Score);
+
+    [Fact]
+    public async Task A_value_outside_its_declared_range_is_refused_after_binding()
+    {
+        // The shape was right and it bound. A real run answered score: 100 out
+        // of five and nothing objected, because 100 is a perfectly good integer.
+        var runner = new AgentRunner(new FakeChatClient("""{"approved":true,"score":100}"""));
+
+        var error = await Assert.ThrowsAsync<AgentException>(
+            () => runner.CompleteJsonAsync<Scored>(Call(), ct: Ct));
+
+        Assert.Contains("failed validation", error.Message);
+        Assert.Contains("Score", error.Message);
+        // The reply is quoted, for the same reason the bind failure quotes it.
+        Assert.Contains("100", error.Message);
+    }
+
+    [Fact]
+    public async Task A_value_inside_its_range_still_binds()
+    {
+        var runner = new AgentRunner(new FakeChatClient("""{"approved":true,"score":4}"""));
+        Assert.Equal(4, (await runner.CompleteJsonAsync<Scored>(Call(), ct: Ct)).Score);
+    }
+
     [Fact]
     public async Task The_model_is_told_the_shape_not_only_the_format()
     {
