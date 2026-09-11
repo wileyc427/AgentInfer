@@ -23,6 +23,12 @@ namespace Agentry;
 /// ever wanted it arrives as an explicit, opt-in provider — and prompts loaded
 /// from outside the assembly are untrusted input.
 /// </para>
+/// <para>
+/// <see cref="PromptFile"/> moves the text out of the attribute without giving
+/// any of that up: the file is read by the generator, at compile time, and
+/// emitted as the same constant. It buys authoring ergonomics, not deployment
+/// flexibility.
+/// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Interface, AllowMultiple = false, Inherited = false)]
 public sealed class AgentAttribute : Attribute
@@ -33,8 +39,44 @@ public sealed class AgentAttribute : Attribute
     /// </param>
     public AgentAttribute(string prompt) => Prompt = prompt;
 
-    /// <summary>The system prompt.</summary>
-    public string Prompt { get; }
+    /// <summary>
+    /// Declares an agent whose prompt lives in a file. Set <see cref="PromptFile"/>.
+    /// </summary>
+    /// <remarks>
+    /// A second constructor rather than a nullable parameter with a default,
+    /// because <c>[Agent]</c> with no argument at all should be the shape that
+    /// reads as "the prompt is elsewhere". Setting neither is AGT001.
+    /// </remarks>
+    public AgentAttribute()
+    {
+    }
+
+    /// <summary>The system prompt, when it is written inline.</summary>
+    public string? Prompt { get; }
+
+    /// <summary>
+    /// A file to read the system prompt from, relative to the project directory.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Read by the generator during compilation and emitted as the same
+    /// constant an inline prompt produces. Nothing is opened at run time, so
+    /// trimming, AOT and the "the prompt in the binary is the prompt that ran"
+    /// property all hold exactly as before. What it buys is markdown, no
+    /// escaping, and prompt diffs that do not touch a <c>.cs</c> file.
+    /// </para>
+    /// <para>
+    /// The compiler can only see files listed in <c>AdditionalFiles</c>. The
+    /// package adds <c>Prompts/**/*.md</c> for you; anything else needs a line
+    /// in the project file, and AGT008 says so with the line to paste.
+    /// </para>
+    /// <para>
+    /// Setting this and a prompt together is AGT009. Two sources for one string
+    /// means one of them is stale, and guessing which would be the kind of
+    /// silent almost-right behaviour this library exists to remove.
+    /// </para>
+    /// </remarks>
+    public string? PromptFile { get; set; }
 
     /// <summary>
     /// Overrides the generated implementation's name. Defaults to the interface

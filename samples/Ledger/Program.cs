@@ -35,21 +35,22 @@ var services = new ServiceCollection();
 services.AddSingleton<ILoggerFactory>(logs);
 services.AddLogging();
 
-services
-    .AddAgentryModels(configuration, (model, _) => models.For(model))
+var agentry = services
+    .AddAgentryModels(configuration, (binding, _) => models.For(binding))
     .ValidateRoles(AgentryRoles.All);
 
 var provider = services.BuildServiceProvider();
 var router = provider.GetRequiredService<IModelRouter>();
 
 // Methods with no [Model] use this one.
-var runner = new AgentRunner(models.For(models.DefaultModel), logs.CreateLogger<AgentRunner>());
+var runner = new AgentRunner(models.Default(), logs.CreateLogger<AgentRunner>());
 
-Console.WriteLine($"endpoint: {models.Endpoint}");
-Console.WriteLine($"default:  {models.DefaultModel}");
-foreach (var (role, model) in models.Roles)
+// Which model each method will actually reach, and from where. A run that does
+// not say this is a run you cannot argue with when the answer looks wrong.
+Console.WriteLine($"default:  {models.DefaultModel} at {models.EndpointOf(models.DefaultProvider)}");
+foreach (var (role, binding) in agentry.Models)
 {
-    Console.WriteLine($"role {role}: {model}");
+    Console.WriteLine($"role {role}: {binding.Model} at {binding.Provider.Endpoint}");
 }
 
 // The caller may read the ledger and not write to it. LedgerTools declares a
