@@ -427,6 +427,27 @@ dotnet test
 dotnet run --project samples/Ledger
 ```
 
+The sample reads `samples/Ledger/appsettings.json`:
+
+```json
+{
+  "Agentry": {
+    "Endpoint": "http://localhost:11434/v1",
+    "DefaultModel": "qwen3:latest",
+    "Models": { "accurate": "qwen3:latest" }
+  }
+}
+```
+
+Point `accurate` at something larger to give `SummariseAsync` a better model
+while everything else stays put. Environment variables layer on top
+(`AGENTRY__MODELS__ACCURATE`), so a run can be redirected without editing a
+committed file.
+
+**No credential lives in that file.** It is committed, and a plausible-looking
+value in a committed file is one somebody pastes a real key over. Keys come from
+the environment or user-secrets.
+
 The sample sets `EmitCompilerGeneratedFiles`, so what the generator produced is
 readable at
 `samples/Ledger/obj/generated/Agentry.Generator/Agentry.Generator.AgentGenerator/`.
