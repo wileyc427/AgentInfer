@@ -92,8 +92,42 @@ internal sealed class GatedFunction : AIFunction
     }
 }
 
-/// <summary>Serializer options for the loosely typed hop into the dispatcher.</summary>
+/// <summary>Serializer options.</summary>
 internal static class AgentJson
 {
+    /// <summary>For the loosely typed hop into the dispatcher.</summary>
     public static JsonSerializerOptions Default { get; } = new(JsonSerializerOptions.Web);
+
+    /// <summary>
+    /// For binding a reply to a return type — where the annotations are meant
+    /// to be a contract rather than a suggestion.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Without these two flags the library's central claim is false at the one
+    /// place it matters. A model replied <c>{"approved":false,"score":0}</c> to
+    /// a method returning <c>Verdict(bool, int, string[] Problems)</c>, and
+    /// deserialization happily produced a record with <c>null</c> in the
+    /// non-nullable <c>Problems</c> slot. The caller's <c>foreach</c> then threw
+    /// a NullReferenceException several lines away from the cause.
+    /// </para>
+    /// <para>
+    /// <c>Task&lt;Verdict&gt;</c> has to mean a <c>Verdict</c>. With these on,
+    /// the same reply raises a JsonException at the boundary, which the runner
+    /// turns into an error naming the missing property and quoting what the
+    /// model actually said.
+    /// </para>
+    /// <para>
+    /// This covers shape, not semantics. The same reply scored 0 out of an
+    /// intended 1–5 and nothing objected, because no range was declared. Value
+    /// constraints would need DataAnnotations or IValidatableObject run after
+    /// binding — worth doing, and a separate decision from making the type
+    /// itself honest.
+    /// </para>
+    /// </remarks>
+    public static JsonSerializerOptions Binding { get; } = new(JsonSerializerOptions.Web)
+    {
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true,
+    };
 }

@@ -98,6 +98,40 @@ public sealed class AgentRunnerTests
         Assert.Equal("IThing.DoAsync", error.Operation);
     }
 
+    private sealed record Report(bool Approved, int Score, string[] Problems);
+
+    [Fact]
+    public async Task A_missing_property_is_an_error_at_the_boundary_not_a_null_three_frames_later()
+    {
+        // This exact reply, to this exact record, produced a Report with null in
+        // the non-nullable Problems slot — and a NullReferenceException in the
+        // caller's foreach, several lines from the cause. Task<Report> has to
+        // mean a Report.
+        var runner = new AgentRunner(new FakeChatClient("""{"approved":false,"score":0}"""));
+
+        var error = await Assert.ThrowsAsync<AgentException>(
+            () => runner.CompleteJsonAsync<Report>(Call(), ct: Ct));
+
+        Assert.Contains("problems", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task An_explicit_null_in_a_non_nullable_slot_is_refused_too()
+    {
+        var runner = new AgentRunner(new FakeChatClient("""{"approved":true,"score":4,"problems":null}"""));
+        await Assert.ThrowsAsync<AgentException>(() => runner.CompleteJsonAsync<Report>(Call(), ct: Ct));
+    }
+
+    [Fact]
+    public async Task A_complete_reply_still_binds()
+    {
+        var runner = new AgentRunner(new FakeChatClient("""{"approved":true,"score":4,"problems":[]}"""));
+        var report = await runner.CompleteJsonAsync<Report>(Call(), ct: Ct);
+
+        Assert.True(report.Approved);
+        Assert.Empty(report.Problems);
+    }
+
     [Fact]
     public async Task Json_null_is_an_error_rather_than_a_null_reference_later()
     {
