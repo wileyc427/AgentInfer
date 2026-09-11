@@ -58,7 +58,7 @@ internal static class AgentEmitter
 
         // The prompt as a constant, which is the entire reason for the attribute
         // design: it survives compilation and trimming, and is greppable.
-        code.Append("    private const string SystemPrompt = ").Append(Literal(model.SystemPrompt)).AppendLine(";");
+        code.Append("    private const string SystemPrompt = ").Append(ToolEmit.Literal(model.SystemPrompt)).AppendLine(";");
         code.AppendLine();
         code.AppendLine("    private readonly global::Agentry.AgentRunner _runner;");
 
@@ -113,7 +113,10 @@ internal static class AgentEmitter
 
         code.AppendLine("    }");
 
-        EmitToolManifest(code, model);
+        // Unconditional, even with no tools: present and empty rather than
+        // absent, so a caller never has to ask whether this agent has a
+        // manifest before reading it.
+        ToolEmit.Manifest(code, "    ", model.Tools);
 
         foreach (var method in model.Methods)
         {
@@ -124,53 +127,16 @@ internal static class AgentEmitter
 
         if (model.Tools.Count > 0)
         {
-            EmitInvoker(code, model);
+            ToolEmit.Invoker(
+                code,
+                model.Accessibility,
+                model.ImplementationName + "Tools",
+                model.ToolsType,
+                model.ImplementationName + ".Tools",
+                model.Tools);
         }
 
         return code.ToString();
-    }
-
-    /// <summary>
-    /// Emits what this agent may call, as data.
-    /// </summary>
-    /// <remarks>
-    /// A static property rather than something built at construction: the
-    /// manifest is a fact about the type, known at compile time, and there is
-    /// no moment at run time when it could differ. Building it in a constructor
-    /// would be doing work to arrive at a constant.
-    /// <para>
-    /// The schema is a verbatim literal. Nothing reflects over the tool method
-    /// to produce it, which is what makes this survive trimming.
-    /// </para>
-    /// </remarks>
-    private static void EmitToolManifest(StringBuilder code, AgentModel model)
-    {
-        code.AppendLine();
-        code.AppendLine("    /// <summary>What this agent may call. Compile-time constant.</summary>");
-        code.AppendLine("    public static global::Agentry.ToolManifest Tools { get; } = new(");
-        code.AppendLine("        new global::Agentry.ToolDescriptor[]");
-        code.AppendLine("        {");
-
-        foreach (var tool in model.Tools)
-        {
-            code.AppendLine("            new(");
-            code.Append("                ").Append(Literal(tool.Name)).AppendLine(",");
-            code.Append("                ").Append(Literal(tool.Description)).AppendLine(",");
-            code.Append("                ").Append(Literal(tool.ParametersSchema)).AppendLine(",");
-            code.Append("                new string[] { ");
-
-            var first = true;
-            foreach (var permission in tool.Permissions)
-            {
-                if (!first) code.Append(", ");
-                code.Append(Literal(permission));
-                first = false;
-            }
-
-            code.AppendLine(" }),");
-        }
-
-        code.AppendLine("        });");
     }
 
     private static void EmitMethod(StringBuilder code, MethodModel method, bool hasTools)
@@ -203,8 +169,8 @@ internal static class AgentEmitter
         code.AppendLine("        var call = new global::Agentry.AgentCall");
         code.AppendLine("        {");
         code.AppendLine("            SystemPrompt = SystemPrompt,");
-        code.Append("            TaskPrompt = ").Append(Literal(method.TaskPrompt)).AppendLine(",");
-        code.Append("            Operation = ").Append(Literal(method.Name)).AppendLine(",");
+        code.Append("            TaskPrompt = ").Append(ToolEmit.Literal(method.TaskPrompt)).AppendLine(",");
+        code.Append("            Operation = ").Append(ToolEmit.Literal(method.Operation)).AppendLine(",");
 
         if (method.ReturnSchema.Length > 0)
         {
@@ -212,7 +178,7 @@ internal static class AgentEmitter
             // half of "schemas at compile time" — parameters had one and return
             // types did not, so a model was told to reply with JSON and left to
             // guess which JSON.
-            code.Append("            ResponseSchema = ").Append(Literal(method.ReturnSchema)).AppendLine(",");
+            code.Append("            ResponseSchema = ").Append(ToolEmit.Literal(method.ReturnSchema)).AppendLine(",");
         }
         code.AppendLine("            Arguments = new global::System.Collections.Generic.KeyValuePair<string, string>[]");
         code.AppendLine("            {");
@@ -226,7 +192,7 @@ internal static class AgentEmitter
                 ? parameter.Name
                 : $"global::System.Text.Json.JsonSerializer.Serialize({parameter.Name})";
 
-            code.Append("                new(").Append(Literal(parameter.Name)).Append(", ")
+            code.Append("                new(").Append(ToolEmit.Literal(parameter.Name)).Append(", ")
                 .Append(rendered).AppendLine("),");
         }
 
@@ -244,7 +210,7 @@ internal static class AgentEmitter
         // behaves. Roles are a handful of registrations; the lookup is a
         // dictionary hit next to a model round trip.
         var runner = method.ModelRole is { } role
-            ? $"_router.For({Literal(role)})"
+            ? $"_router.For({ToolEmit.Literal(role)})"
             : "_runner";
 
         if (method.Shape == ReturnShape.Text)
@@ -274,120 +240,4 @@ internal static class AgentEmitter
 
         code.AppendLine("    }");
     }
-
-    /// <summary>
-    /// Emits the dispatcher: a switch on the tool name, with typed binding.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// This is the half that makes <c>[RequiresPermission]</c> enforceable
-    /// rather than declarative. The base class checks the permission before
-    /// this runs and filters the menu the model is sent before that, so a tool
-    /// the caller may not use is both invisible and unreachable.
-    /// </para>
-    /// <para>
-    /// Every argument is read with a <c>JsonElement</c> accessor chosen at
-    /// compile time from the parameter's static type. Nothing reflects over the
-    /// method, which is what lets the whole tool surface survive trimming — and
-    /// it means a tool whose signature changes is a build break here rather
-    /// than a binding failure in a trace.
-    /// </para>
-    /// </remarks>
-    private static void EmitInvoker(StringBuilder code, AgentModel model)
-    {
-        var name = model.ImplementationName + "Tools";
-        var toolsType = model.ToolsType;
-
-        code.AppendLine();
-        code.AppendLine("/// <summary>Dispatches this agent\'s tools. Generated.</summary>");
-        code.Append(model.Accessibility).Append(" sealed partial class ").Append(name)
-            .AppendLine(" : global::Agentry.ToolInvoker");
-        code.AppendLine("{");
-        code.Append("    private readonly ").Append(toolsType).AppendLine(" _tools;");
-        code.AppendLine();
-        code.Append("    public ").Append(name).Append('(').Append(toolsType)
-            .AppendLine(" tools) => _tools = tools;");
-        code.AppendLine();
-        code.Append("    public override global::Agentry.ToolManifest Manifest => ")
-            .Append(model.ImplementationName).AppendLine(".Tools;");
-        code.AppendLine();
-        code.AppendLine("    /// <inheritdoc/>");
-        code.AppendLine("    protected override async global::System.Threading.Tasks.Task<string> DispatchAsync(");
-        code.AppendLine("        string name,");
-        code.AppendLine("        global::System.Text.Json.JsonElement arguments,");
-        code.AppendLine("        global::System.Threading.CancellationToken ct)");
-        code.AppendLine("    {");
-        code.AppendLine("        switch (name)");
-        code.AppendLine("        {");
-
-        foreach (var tool in model.Tools)
-        {
-            EmitCase(code, tool);
-        }
-
-        code.AppendLine("            default:");
-        code.AppendLine("                // Unreachable: the base class matches the name against the");
-        code.AppendLine("                // manifest first. Here so a tool added to one and not the");
-        code.AppendLine("                // other fails loudly instead of returning null.");
-        code.AppendLine("                throw new global::System.InvalidOperationException($\"No dispatch for \'{name}\'.\");");
-        code.AppendLine("        }");
-        code.AppendLine("    }");
-        code.AppendLine("}");
-    }
-
-    private static void EmitCase(StringBuilder code, ToolModel tool)
-    {
-        code.Append("            case ").Append(Literal(tool.Name)).AppendLine(":");
-        code.AppendLine("            {");
-
-        foreach (var parameter in tool.Parameters)
-        {
-            code.Append("                var ").Append(parameter.Name).Append(" = arguments.GetProperty(")
-                .Append(Literal(parameter.Name)).Append(").").Append(parameter.Reader).AppendLine(";");
-        }
-
-        var args = string.Join(", ", tool.Parameters.Select(p => p.Name)
-            .Concat(tool.TakesCancellationToken ? ["ct"] : System.Array.Empty<string>()));
-
-        var call = $"_tools.{tool.Name}({args})";
-
-        switch (tool.Return)
-        {
-            case ToolReturn.None:
-                code.Append("                ").Append(call).AppendLine(";");
-                code.AppendLine("                await global::System.Threading.Tasks.Task.CompletedTask.ConfigureAwait(false);");
-                code.AppendLine("                return \"done\";");
-                break;
-
-            case ToolReturn.AwaitedNone:
-                code.Append("                await ").Append(call).AppendLine(".ConfigureAwait(false);");
-                code.AppendLine("                return \"done\";");
-                break;
-
-            case ToolReturn.AwaitedValue:
-                code.Append("                var result = await ").Append(call).AppendLine(".ConfigureAwait(false);");
-                code.AppendLine("                return global::System.Text.Json.JsonSerializer.Serialize(result);");
-                break;
-
-            default:
-                code.Append("                var result = ").Append(call).AppendLine(";");
-                code.AppendLine("                await global::System.Threading.Tasks.Task.CompletedTask.ConfigureAwait(false);");
-                code.AppendLine("                return global::System.Text.Json.JsonSerializer.Serialize(result);");
-                break;
-        }
-
-        code.AppendLine("            }");
-    }
-
-    /// <summary>
-    /// A verbatim string literal, with quotes doubled.
-    /// </summary>
-    /// <remarks>
-    /// Prompts are multi-line and full of punctuation, so verbatim is the only
-    /// sane form. The one escape a verbatim literal needs is <c>""</c>, and
-    /// getting this wrong produces generated code that does not compile — with
-    /// the error reported against a file the user cannot open.
-    /// </remarks>
-    private static string Literal(string value) => "@\"" + value.Replace("\"", "\"\"") + "\"";
 }
-

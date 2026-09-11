@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
-    <RootNamespace>Ledger</RootNamespace>
+    <RootNamespace>Intake</RootNamespace>
 
     <!--
       Writes what the generator produced to obj/generated/ so it can be read,
@@ -20,16 +20,6 @@
   <ItemGroup>
     <!-- Beside the binary, because ConfigurationBuilder reads from BaseDirectory. -->
     <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
-
-    <!--
-      The same transitivity gap as the analyzer below, for the same reason: the
-      buildTransitive targets that ship in the Agentry package do this
-      automatically, and none of a package's MSBuild files flow through a
-      ProjectReference. So the two lines the package would have added are here
-      by hand, and only projects inside this repo need them.
-    -->
-    <AdditionalFiles Include="Prompts/**/*.md" />
-    <CompilerVisibleProperty Include="ProjectDir" />
   </ItemGroup>
 
   <ItemGroup>

@@ -66,7 +66,8 @@ constant — see [Prompts in files](#prompts-in-files).
 | `AGT005` Unsupported tool parameter | a model sending a shape the parameter cannot take, learned from a trace |
 | `AGT006` Tool requires `[RequiresPermission]` | `@hidden`, which keeps a method out of the docs and leaves it callable |
 | `AGT007` `[Model]` requires a role | an empty role, which presents as a missing registration somewhere else |
-| `AGT008` Flags enum has no schema | `"Read, Write"` — a reply that reads correctly and binds to nothing |
+| `AGT011` Flags enum has no schema | `"Read, Write"` — a reply that reads correctly and binds to nothing |
+| `AGT012` `[AgentTools]` with no tools | an invoker that offers a model nothing, read as an agent that never calls one |
 | `AGT007` `[Model]` requires a non-empty role | a role that silently resolves to nothing and routes to the default model |
 | `AGT008` Prompt file is not in `AdditionalFiles` | a prompt file the compiler cannot see, sitting visibly in the project |
 | `AGT009` Both a prompt and a `PromptFile` | two sources for one string, one of them stale, neither obviously the winner |
@@ -482,6 +483,75 @@ cannot investigate something nobody listed. A commander decides at run time —
 and pays for the deciding, in requests you cannot predict and in a sub-agent
 whose calls are invisible from the call site. Which is why:
 
+## The generator is optional, and the split is uneven
+
+An agent is an interface, so the implementation is a class — and you can write
+that class. Nothing in the runtime requires generated code: `AgentRunner`,
+`ToolInvoker`, `IModelRouter` and `AgentScope` have no idea whether their caller
+was generated.
+
+Worth knowing what you would be replacing. `LedgerAnalystAgent.g.cs` is 136
+non-comment lines for two methods and five tools:
+
+| | Lines | Worth hand-writing? |
+| --- | --- | --- |
+| Prompt constant, constructor, two call sites | ~45 | Yes. Mechanical, and it does not rot |
+| `ToolManifest` — five JSON Schema strings | ~30 | Derived from the method signatures |
+| Dispatch switch — typed argument binding | ~45 | Derived from the method signatures |
+| `ResponseSchema` for `Verdict` | one string | Derived from the record and its `[Range]` |
+
+The value is in the derived two-thirds. And the diagnostics agree: AGT001,
+AGT002, AGT004, AGT007 and AGT008–010 police hazards that **only exist because
+of the attribute surface** — write the class and the hazard and the rule
+disappear together. The rules that survive into a hand-written world are AGT005,
+AGT006 and AGT011, which are the schema and permission rules. The two arguments
+land in the same place, which is why there is an attribute for taking the tools
+half alone:
+
+```csharp
+[AgentTools]
+public sealed class IntakeTools
+{
+    [AgentTool("The full text of one ticket, with the customer and their plan.")]
+    [RequiresPermission("intake.read")]
+    public string Ticket(string id) => ...;
+}
+
+// Generated: IntakeToolsInvoker, with IntakeToolsInvoker.Tools as the manifest.
+var tools = new IntakeToolsInvoker(new IntakeTools());
+IIntake intake = new IntakeAgent(router, tools, caller, policy);   // yours
+```
+
+One reader and one emitter serve both ways in. Two copies would start identical
+and diverge on the first thing either learned, and the symptom is a manifest
+that disagrees with the switch serving it — a tool the model is offered and
+cannot call, or one it can call that nothing declared a permission for.
+
+### When to write the class
+
+Not as a preference. An attribute argument must be a compile-time constant, so
+these cannot be declared at all:
+
+- **A prompt assembled at run time** — from a tenant's policy, a row in a table,
+  something that changes without a deploy. `[Agent("…")]` takes a constant and
+  `PromptFile` takes a file read at compile time.
+- **A model role chosen from the input.** `[Model]` names one role for every
+  call to a method. A short ticket and a long one with three complaints in it
+  are different problems.
+- **A retry that feeds a binding failure back to the model.** The library will
+  not do this for you on purpose — a retry hidden inside what looks like one
+  call is the same class of surprise as a strategy that silently executes
+  generated code. It belongs in the caller's own loop, with the bound visible.
+
+`samples/Intake` is all three, and it states its own costs rather than only its
+benefits: the response schema is hand-written and nothing checks it still
+matches the record, `AgentryRoles.All` is replaced by an array somebody
+maintains, and the AOT suppressions are written out rather than emitted.
+
+```bash
+dotnet run --project samples/Intake
+```
+
 ## Bounding and counting a whole workflow
 
 ```csharp
@@ -703,11 +773,12 @@ Needs the .NET 10 SDK.
 dotnet build
 dotnet test
 dotnet run --project samples/Incident     # four workflow patterns, no model needed
+dotnet run --project samples/Intake       # a hand-written agent over generated tools
 dotnet run --project samples/Ledger       # tools, permissions, model roles
 ```
 
-`samples/Incident` runs against a scripted `IChatClient` by default, so it works
-with nothing installed. That is one class, because the runtime takes an
+`samples/Incident` and `samples/Intake` run against a scripted `IChatClient` by
+default, so they work with nothing installed. That is one class, because the runtime takes an
 `IChatClient` and nothing else — no HTTP, no provider SDK, no key — which makes
 a workflow's *shape* testable without paying for a token. It is not a substitute
 for a real run: every interesting failure described above came from pointing
