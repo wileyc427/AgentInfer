@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 using Agentry;
@@ -14,13 +15,22 @@ using Agentry;
 namespace Ledger;
 
 /// <summary>
-/// Binding metadata for every type this app asks a model to produce.
+/// Binding metadata for every type crossing the wire: what a model must
+/// produce, and what a tool hands back to it.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The options mirror what the reflective path set, and they have to: a
 /// context that camelCased differently, or did not respect required
 /// constructor parameters, would bind the same reply differently depending on
 /// which overload a method happened to take.
+/// </para>
+/// <para>
+/// <c>IReadOnlyList&lt;CategorySummary&gt;</c> is here because
+/// <c>LedgerTools.Overview</c> returns it, and AGT016 said so at build. A tool
+/// result richer than a scalar or an array of them has to come from somewhere
+/// static, and this is the somewhere.
+/// </para>
 /// </remarks>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
@@ -28,4 +38,5 @@ namespace Ledger;
     RespectNullableAnnotations = true,
     RespectRequiredConstructorParameters = true)]
 [JsonSerializable(typeof(Verdict))]
+[JsonSerializable(typeof(IReadOnlyList<CategorySummary>))]
 internal partial class LedgerJson : JsonSerializerContext;

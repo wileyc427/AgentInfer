@@ -155,8 +155,27 @@ internal sealed class Rehearsal : IChatClient
             .. calls.Select((c, i) => (AIContent)new FunctionCallContent(
                 $"call-{Guid.NewGuid():N}",
                 c.Tool,
-                System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object?>>(c.Arguments))),
+                Arguments(c.Arguments))),
         ]);
+
+    /// <summary>
+    /// Parses tool-call arguments without a serializer.
+    /// </summary>
+    /// <remarks>
+    /// <c>Deserialize&lt;Dictionary&lt;string, object?&gt;&gt;</c> discovers the
+    /// value types at run time, which is the reflection the rest of this path
+    /// no longer does. <c>JsonNode</c> reads the same JSON with nothing to
+    /// reflect over, and the values arrive as the <c>JsonElement</c>s the
+    /// dispatcher expects anyway.
+    /// </remarks>
+    private static Dictionary<string, object?> Arguments(string json)
+    {
+        var parsed = System.Text.Json.Nodes.JsonNode.Parse(json)!.AsObject();
+
+        return parsed.ToDictionary(
+            pair => pair.Key,
+            pair => (object?)pair.Value?.GetValue<System.Text.Json.JsonElement>());
+    }
 
     public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages,

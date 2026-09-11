@@ -85,6 +85,74 @@ public sealed class StandaloneToolsTests
     }
 
     [Fact]
+    public void Results_render_through_an_overload_rather_than_a_serializer()
+    {
+        var (output, _) = GeneratorHarness.Run(Source);
+
+        // The choice moves to compile time, where the rest of the tool surface
+        // already makes it.
+        Assert.Contains("return global::Agentry.ToolResult.Render(result);", output);
+        Assert.DoesNotContain("JsonSerializer.Serialize(result)", output);
+    }
+
+    [Fact]
+    public void A_result_no_overload_can_render_is_refused_at_build()
+    {
+        var (_, diagnostics) = GeneratorHarness.Run("""
+            using System.Collections.Generic;
+            using Agentry;
+
+            namespace Demo;
+
+            public sealed record Row(string Name, decimal Total);
+
+            [AgentTools]
+            public sealed class Tools
+            {
+                [AgentTool("Everything, in one call.")]
+                [RequiresPermission("read")]
+                public IReadOnlyList<Row> Overview() => [];
+            }
+            """);
+
+        // An error rather than a reflective fallback: tools are a menu that
+        // grows, and a silent fallback is how the parameter schemas would have
+        // rotted if they had not been compile-time from the start.
+        var reported = Assert.Single(diagnostics, d => d.Id == "AGT016");
+        Assert.Contains("IReadOnlyList", reported.GetMessage());
+    }
+
+    [Fact]
+    public void A_declared_context_renders_what_no_overload_can()
+    {
+        var (output, diagnostics) = GeneratorHarness.Run("""
+            using System.Collections.Generic;
+            using System.Text.Json.Serialization;
+            using Agentry;
+
+            [assembly: AgentryJson(typeof(Demo.DemoJson))]
+
+            namespace Demo;
+
+            public sealed record Row(string Name, decimal Total);
+
+            [JsonSerializable(typeof(IReadOnlyList<Row>))]
+            internal partial class DemoJson : JsonSerializerContext;
+
+            [AgentTools]
+            public sealed class Tools
+            {
+                [AgentTool("Everything, in one call.")]
+                [RequiresPermission("read")]
+                public IReadOnlyList<Row> Overview() => [];
+            }
+            """);
+
+        Assert.Empty(diagnostics);
+        Assert.Contains("DemoJson.Default.GetTypeInfo(typeof(", output);
+    }
+
+    [Fact]
     public void A_method_without_the_attribute_is_absent_rather_than_hidden()
     {
         var (output, _) = GeneratorHarness.Run(Source);

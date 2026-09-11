@@ -324,6 +324,17 @@ internal static class SchemaWriter
     }
 
     /// <summary>
+    /// Whether <c>ToolResult.Render</c> has an overload for this type.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately the same set <see cref="ParameterSchema"/> accepts —
+    /// scalars, enums, and arrays of those. A tool's arguments and its result
+    /// travel the same wire, and a result richer than anything a parameter may
+    /// be is a signal the tool is returning a document rather than an answer.
+    /// </remarks>
+    public static bool IsRenderable(ITypeSymbol type) => ParameterSchema(type) is not null;
+
+    /// <summary>
     /// The first <c>[Flags]</c> enum reachable in this type, or <c>null</c>.
     /// </summary>
     /// <remarks>

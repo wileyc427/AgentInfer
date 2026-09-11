@@ -217,4 +217,23 @@ internal static class Diagnostics
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    /// <summary>
+    /// A tool returning something no overload can render and no context
+    /// declares.
+    /// </summary>
+    /// <remarks>
+    /// An error rather than a reflective fallback, and the asymmetry with the
+    /// reply path is deliberate. A reply type is one per method and visible in
+    /// the signature; tools are a menu that grows, and a silent fallback is
+    /// exactly how the parameter schemas would have rotted if they had not been
+    /// compile-time from the start.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor UnrenderableToolResult = new(
+        id: "AGT016",
+        title: "Tool result cannot be rendered",
+        messageFormat: "'{0}' returns '{1}', which is not a scalar, an enum or an array of those. Declare [assembly: AgentryJson] with [JsonSerializable(typeof({1}))], or return a simpler shape.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }

@@ -230,7 +230,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
         if (ctx.TargetSymbol is not INamedTypeSymbol type) return null;
 
         var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
-        var tools = ReadToolsOf(type, diagnostics, ct);
+        var tools = ReadToolsOf(type, diagnostics, ct, JsonContextOf(ctx));
 
         var given = ctx.Attributes.FirstOrDefault()?.NamedArguments
             .FirstOrDefault(pair => pair.Key == "InvokerName").Value.Value as string;
@@ -534,7 +534,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
 
         toolsTypeName = toolsType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
-        return ReadToolsOf(toolsType, diagnostics, ct);
+        return ReadToolsOf(toolsType, diagnostics, ct, JsonContextOf(ctx));
     }
 
     /// <summary>
@@ -550,7 +550,8 @@ public sealed class AgentGenerator : IIncrementalGenerator
     private static EquatableArray<ToolModel> ReadToolsOf(
         INamedTypeSymbol toolsType,
         ImmutableArray<Diagnostic>.Builder diagnostics,
-        CancellationToken ct)
+        CancellationToken ct,
+        INamedTypeSymbol? jsonContext = null)
     {
         var tools = ImmutableArray.CreateBuilder<ToolModel>();
 
@@ -624,18 +625,85 @@ public sealed class AgentGenerator : IIncrementalGenerator
                     SchemaWriter.ReaderFor(parameter.Type)!));
             }
 
+            var shape = ReturnOf(method);
+            var renderer = RendererFor(method, shape, jsonContext, diagnostics);
+
+            if (renderer is null) continue;
+
             tools.Add(new ToolModel(
                 Name: method.Name,
                 Description: toolAttribute.ConstructorArguments.FirstOrDefault().Value as string ?? string.Empty,
                 ParametersSchema: schema,
                 Permissions: new EquatableArray<string>(permissions),
                 Parameters: new EquatableArray<ToolParameterModel>(parameters.ToImmutable()),
-                Return: ReturnOf(method),
+                Return: shape,
+                Renderer: renderer,
                 TakesCancellationToken: takesToken));
         }
 
         return new EquatableArray<ToolModel>(tools.ToImmutable());
     }
+
+    /// <summary>
+    /// How this tool's result becomes text, or <c>null</c> when it cannot.
+    /// </summary>
+    /// <remarks>
+    /// Three answers, in order of preference. An overload the compiler can pick
+    /// from the static type; failing that, a <c>JsonTypeInfo</c> from the
+    /// assembly's declared context; failing both, AGT016 — because a reflective
+    /// fallback here is how the one remaining reflective call in the tool path
+    /// would stay.
+    /// </remarks>
+    private static string? RendererFor(
+        IMethodSymbol method,
+        ToolReturn shape,
+        INamedTypeSymbol? jsonContext,
+        ImmutableArray<Diagnostic>.Builder diagnostics)
+    {
+        if (shape is ToolReturn.None or ToolReturn.AwaitedNone)
+        {
+            return "global::Agentry.ToolResult.Done()";
+        }
+
+        var returned = ToolResultTypeOf(method);
+
+        if (SchemaWriter.IsRenderable(returned))
+        {
+            return "global::Agentry.ToolResult.Render(result)";
+        }
+
+        var name = returned.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+        if (jsonContext is not null && SerializableTypes(jsonContext).Contains(name))
+        {
+            var context = jsonContext.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+            return "global::System.Text.Json.JsonSerializer.Serialize(result, "
+                + $"(global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{name}>)"
+                + $"{context}.Default.GetTypeInfo(typeof({name}))!)";
+        }
+
+        diagnostics.Add(Diagnostic.Create(
+            Diagnostics.UnrenderableToolResult, Location(method), Display(method), name));
+
+        return null;
+    }
+
+    /// <summary>
+    /// What a tool actually hands back: the <c>T</c> of a <c>Task&lt;T&gt;</c>,
+    /// or the return type itself.
+    /// </summary>
+    /// <remarks>
+    /// Not <see cref="ReturnTypeOf"/>, which unwraps <em>any</em> generic
+    /// because a generation method always returns <c>Task&lt;T&gt;</c>. A tool
+    /// may return <c>IReadOnlyList&lt;Row&gt;</c> directly, and unwrapping that
+    /// to <c>Row</c> made AGT016 name a type nobody had written.
+    /// </remarks>
+    private static ITypeSymbol ToolResultTypeOf(IMethodSymbol method) =>
+        method.ReturnType is INamedTypeSymbol { IsGenericType: true } named &&
+        named.ConstructedFrom.ToDisplayString() == "System.Threading.Tasks.Task<TResult>"
+            ? named.TypeArguments[0]
+            : method.ReturnType;
 
     /// <summary>The T of a Task&lt;T&gt;, for describing what the model must produce.</summary>
     private static ITypeSymbol ReturnTypeOf(IMethodSymbol method) =>
