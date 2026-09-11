@@ -95,7 +95,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     {
         try
         {
-            var value = JsonSerializer.Deserialize<T>(Quoted(Unfence(text)), options ?? AgentJson.Binding);
+            var value = JsonSerializer.Deserialize<T>(Quoted(Unfence(text)), options ?? AgentJson.Binding());
             if (value is null) throw new AgentException(call.Operation, "the model returned JSON null");
 
             Validate(call, value, text);
