@@ -43,6 +43,21 @@ internal sealed record AgentModel(
 
 internal sealed record MethodModel(
     string Name,
+
+    /// <summary>
+    /// <c>ILedgerAnalyst.SummariseAsync</c> — what logs, spans and metrics are
+    /// tagged with.
+    /// </summary>
+    /// <remarks>
+    /// Qualified by the interface, and the bare method name was a real defect
+    /// rather than a cosmetic one. <c>operation</c> is the tag on
+    /// <c>calls_per_turn</c>, <c>tools.offered</c> and the workflow histograms,
+    /// so two agents that both have a <c>SummariseAsync</c> — which is most of
+    /// them — collapsed into one series. The instrumentation this repo calls
+    /// the product was measuring the wrong thing.
+    /// </remarks>
+    string Operation,
+
     string TaskPrompt,
     ReturnShape Shape,
     string ReturnType,
@@ -63,3 +78,17 @@ internal enum ReturnShape
     /// <summary><c>Task&lt;T&gt;</c> — bind the reply as JSON.</summary>
     Json,
 }
+
+/// <summary>
+/// A type carrying <c>[AgentTools]</c>: tools with no agent attached.
+/// </summary>
+/// <remarks>
+/// Same rule as <see cref="AgentModel"/> — strings and
+/// <see cref="EquatableArray{T}"/> only, so the pipeline can cache it by value.
+/// </remarks>
+internal sealed record ToolsModel(
+    string Namespace,
+    string ToolsType,
+    string InvokerName,
+    string Accessibility,
+    EquatableArray<ToolModel> Tools);

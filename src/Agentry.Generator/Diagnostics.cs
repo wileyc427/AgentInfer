@@ -153,10 +153,23 @@ internal static class Diagnostics
     /// <c>"Read, Write"</c> — which reads correctly and binds to nothing.
     /// </summary>
     public static readonly DiagnosticDescriptor UnsupportedFlagsEnum = new(
-        id: "AGT008",
+        id: "AGT011",
         title: "Flags enum has no JSON schema",
         messageFormat: "'{0}' uses '{1}', which is a [Flags] enum. JSON Schema describes a choice of one value, not a set — return an array of a plain enum instead.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// A type asking to be a tool surface, with no tools on it. The generated
+    /// invoker then offers a model nothing, which presents as an agent that
+    /// answers without ever calling anything.
+    /// </summary>
+    public static readonly DiagnosticDescriptor NoToolsOnToolsType = new(
+        id: "AGT012",
+        title: "[AgentTools] type has no tools",
+        messageFormat: "'{0}' has [AgentTools] but no method carries [AgentTool]. Mark the methods a model may call, or drop the attribute.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 }

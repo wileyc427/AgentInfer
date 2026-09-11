@@ -1,0 +1,96 @@
+using Microsoft.Extensions.AI;
+
+namespace Intake;
+
+/// <summary>
+/// A scripted model, so the sample runs with nothing installed.
+/// </summary>
+/// <remarks>
+/// One class, because the runtime takes an <see cref="IChatClient"/> and
+/// nothing else. It answers the extract badly the first time — urgency 9 out of
+/// a declared 1–5 — so the repair loop in <see cref="IntakeAgent"/> has
+/// something real to repair. Pass <c>--live</c> for a model that is trying.
+/// </remarks>
+internal sealed class Rehearsal : IChatClient
+{
+    private int _extracts;
+
+    public Task<ChatResponse> GetResponseAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        var all = messages as IList<ChatMessage> ?? [.. messages];
+        var user = all.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? string.Empty;
+        var toolsRan = all.Any(m => m.Contents.Any(c => c is FunctionResultContent));
+
+        return Task.FromResult(new ChatResponse(Reply(user, toolsRan)));
+    }
+
+    private ChatMessage Reply(string user, bool toolsRan)
+    {
+        var binding = user.Contains("<answer>", StringComparison.Ordinal);
+
+        if (user.Contains("What is this ticket about?", StringComparison.Ordinal))
+        {
+            // Unquoted. Told to reply with JSON and handed a list of words, a
+            // model answers with the word about as often as with the quoted one.
+            return Assistant("billing");
+        }
+
+        if (user.Contains("summarise what the customer is asking for", StringComparison.Ordinal))
+        {
+            return toolsRan
+                ? Assistant(
+                    "Ravensmere Dental were billed twice for the March seat licence and once for a "
+                    + "seat removed in February. They want both refunded and the seat count corrected "
+                    + "before the next cycle.")
+                : Call("Ticket", "{\"id\":\"T-1041\"}");
+        }
+
+        if (user.Contains("extract the customer, the category", StringComparison.Ordinal))
+        {
+            if (!binding)
+            {
+                return toolsRan ? Assistant("Ticket read.") : Call("Ticket", "{\"id\":\"T-1041\"}");
+            }
+
+            // First bind is out of range and binds cleanly as an integer, which
+            // is why [Range] does double duty: in the schema, and after.
+            return Assistant(Interlocked.Increment(ref _extracts) == 1
+                ? """
+                  {"customer":"Ravensmere Dental","category":"billing","urgency":9,
+                   "asks":["Refund the duplicate March charge","Correct the seat count"]}
+                  """
+                : """
+                  {"customer":"Ravensmere Dental","category":"billing","urgency":4,
+                   "asks":["Refund the duplicate March charge",
+                           "Refund the seat removed in February",
+                           "Correct the seat count before the next cycle"]}
+                  """);
+        }
+
+        return Assistant("ok");
+    }
+
+    private static ChatMessage Assistant(string text) => new(ChatRole.Assistant, text);
+
+    private static ChatMessage Call(string tool, string arguments) =>
+        new(ChatRole.Assistant,
+        [
+            new FunctionCallContent(
+                $"call-{Guid.NewGuid():N}",
+                tool,
+                System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object?>>(arguments)),
+        ]);
+
+    public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? options = null,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("The sample does not stream.");
+
+    public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+    public void Dispose() { }
+}
