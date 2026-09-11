@@ -30,9 +30,15 @@
     <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- The analyzer path is how NuGet knows to load this into the compiler. -->
-    <None Include="$(OutputPath)/$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-  </ItemGroup>
+  <PropertyGroup>
+    <!--
+      Not packed on its own. analyzers/dotnet/cs is how NuGet knows to load a
+      dll into the compiler, and this generator reaches consumers through that
+      folder in the Agentry package — see PackGenerator there. Publishing a
+      second package carrying the same generator would let a project reference
+      both, load it twice, and get CS0101 on every generated type.
+    -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
 
 </Project>

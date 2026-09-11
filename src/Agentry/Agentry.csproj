@@ -5,13 +5,45 @@
     <Description>Runtime for Agentry. Generated agents call into this.</Description>
   </PropertyGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="../Agentry.Abstractions/Agentry.Abstractions.csproj" />
+  <PropertyGroup>
     <!--
       The generator travels with the runtime package, so referencing Agentry is
-      all a consumer needs. OutputItemType/ReferenceOutputAssembly is the
-      incantation that ships it as an analyzer rather than as a reference.
+      all a consumer needs. That claim is not free: OutputItemType="Analyzer"
+      loads the generator into THIS project's compilation and nothing more, and
+      ReferenceOutputAssembly="false" keeps it out of the dependency list, so
+      without the target below the package ships a runtime with no generator and
+      every consumer sees "type not found". Verified by opening the nupkg, which
+      is the only way to catch it.
     -->
+    <TargetsForTfmSpecificContentInPackage>
+      $(TargetsForTfmSpecificContentInPackage);PackGenerator
+    </TargetsForTfmSpecificContentInPackage>
+  </PropertyGroup>
+
+  <Target Name="PackGenerator" DependsOnTargets="ResolveReferences">
+    <ItemGroup>
+      <!--
+        Taken from @(Analyzer) rather than from a hardcoded bin path, so it
+        cannot drift from the configuration and target framework actually built.
+        The filter matters: @(Analyzer) also holds the analyzers that arrive
+        with Roslyn's own packages, and packing those would ship somebody else's
+        assemblies inside this one.
+      -->
+      <_AgentryGenerator Include="@(Analyzer)" Condition="'%(Filename)' == 'Agentry.Generator'" />
+      <TfmSpecificPackageFile Include="@(_AgentryGenerator)" PackagePath="analyzers/dotnet/cs" />
+    </ItemGroup>
+
+    <!--
+      The failure this replaces is a package that restores, builds, and produces
+      "type or namespace AdvisorAgent could not be found" in somebody else's
+      project. Breaking the pack is the cheapest place to find out.
+    -->
+    <Error Condition="'@(_AgentryGenerator)' == ''"
+           Text="Agentry.Generator.dll is not in @(Analyzer), so this package would ship a runtime with no generator." />
+  </Target>
+
+  <ItemGroup>
+    <ProjectReference Include="../Agentry.Abstractions/Agentry.Abstractions.csproj" />
     <ProjectReference Include="../Agentry.Generator/Agentry.Generator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
