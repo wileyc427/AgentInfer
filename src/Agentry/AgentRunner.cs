@@ -205,10 +205,17 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         var text = await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, started, ct)
             .ConfigureAwait(false);
 
+        // The arguments come along, and dropping them was a bug. The binding
+        // call is a fresh two-message request: a method taking a service name
+        // and returning a record with a Service field was asked to produce one
+        // from the answer text alone, and a model that could not find the name
+        // in there invented one that read fine. Keeping them costs tokens
+        // proportional to the inputs, which are the small half — the tool
+        // output already in `answer` is the large one.
         var binding = call with
         {
             Operation = call.Operation + " (bind)",
-            Arguments = [new KeyValuePair<string, string>("answer", text)],
+            Arguments = [.. call.Arguments, new KeyValuePair<string, string>("answer", text)],
         };
 
         var reply = await _client.GetResponseAsync(Build(binding, json: true), FormatFor(binding), ct)

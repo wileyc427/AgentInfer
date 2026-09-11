@@ -25,6 +25,64 @@ public sealed class AgentRunnerTests
         };
 
     [Fact]
+    public async Task The_binding_call_still_carries_the_original_arguments()
+    {
+        var client = new RecordingClient();
+        var runner = new AgentRunner(client);
+
+        var call = new AgentCall
+        {
+            SystemPrompt = "You are terse.",
+            TaskPrompt = "Investigate this service.",
+            Operation = "IInvestigator.InvestigateAsync",
+            Arguments = [new KeyValuePair<string, string>("service", "payments")],
+        };
+
+        await runner.CompleteJsonWithToolsAsync<Health>(call, new NoTools(), GrantAllTools.Instance, ct: Ct);
+
+        // The second phase is a fresh two-message request, and it used to get
+        // only <answer>. A method taking a service name and returning a record
+        // with a Service field was then asked to produce one from the answer
+        // text alone — and a model that could not find it there invented one.
+        var binding = client.Requests[^1][1].Text;
+
+        Assert.Contains("<service>\npayments\n</service>", binding);
+        Assert.Contains("<answer>", binding);
+    }
+
+    public sealed record Health(string Service, bool Healthy);
+
+    private sealed class NoTools : ToolInvoker
+    {
+        public override ToolManifest Manifest => ToolManifest.Empty;
+
+        protected override Task<string> DispatchAsync(
+            string name, JsonElement arguments, CancellationToken ct) =>
+            Task.FromResult(string.Empty);
+    }
+
+    private sealed class RecordingClient : IChatClient
+    {
+        public List<IList<ChatMessage>> Requests { get; } = [];
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)
+        {
+            Requests.Add([.. messages]);
+            return Task.FromResult(new ChatResponse(
+                new ChatMessage(ChatRole.Assistant, "{\"service\":\"payments\",\"healthy\":false}")));
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
+    }
+
+    [Fact]
     public async Task The_system_prompt_is_a_system_message()
     {
         var client = new FakeChatClient("ok");
