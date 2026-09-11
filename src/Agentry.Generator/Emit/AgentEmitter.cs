@@ -178,6 +178,15 @@ internal static class AgentEmitter
         code.AppendLine("            SystemPrompt = SystemPrompt,");
         code.Append("            TaskPrompt = ").Append(Literal(method.TaskPrompt)).AppendLine(",");
         code.Append("            Operation = ").Append(Literal(method.Name)).AppendLine(",");
+
+        if (method.ReturnSchema.Length > 0)
+        {
+            // The shape the model must produce, as a literal. This is the other
+            // half of "schemas at compile time" — parameters had one and return
+            // types did not, so a model was told to reply with JSON and left to
+            // guess which JSON.
+            code.Append("            ResponseSchema = ").Append(Literal(method.ReturnSchema)).AppendLine(",");
+        }
         code.AppendLine("            Arguments = new global::System.Collections.Generic.KeyValuePair<string, string>[]");
         code.AppendLine("            {");
 

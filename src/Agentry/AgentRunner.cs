@@ -69,7 +69,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         using var activity = Source.StartActivity(call.Operation);
         var started = Stopwatch.GetTimestamp();
 
-        var response = await _client.GetResponseAsync(Build(call, json: true), cancellationToken: ct)
+        var response = await _client.GetResponseAsync(Build(call, json: true), FormatFor(call), ct)
             .ConfigureAwait(false);
 
         var text = response.Text ?? string.Empty;
@@ -192,15 +192,13 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         var text = await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, started, ct)
             .ConfigureAwait(false);
 
-        var binding = new AgentCall
+        var binding = call with
         {
-            SystemPrompt = call.SystemPrompt,
-            TaskPrompt = call.TaskPrompt,
             Operation = call.Operation + " (bind)",
             Arguments = [new KeyValuePair<string, string>("answer", text)],
         };
 
-        var reply = await _client.GetResponseAsync(Build(binding, json: true), cancellationToken: ct)
+        var reply = await _client.GetResponseAsync(Build(binding, json: true), FormatFor(binding), ct)
             .ConfigureAwait(false);
 
         return Bind<T>(call, reply.Text ?? string.Empty, options);
@@ -277,6 +275,39 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
             log);
     }
 
+    /// <summary>
+    /// Options that ask the provider to enforce the shape, where it can.
+    /// </summary>
+    /// <remarks>
+    /// Belt and braces with the schema in the prompt, because the two fail in
+    /// different places: a provider that ignores response_format still sees the
+    /// prompt, and a model that ignores the prompt is still constrained by the
+    /// provider. Neither alone was enough in practice.
+    /// </remarks>
+    private static ChatOptions? FormatFor(AgentCall call)
+    {
+        if (call.ResponseSchema.Length == 0) return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(call.ResponseSchema);
+
+            return new ChatOptions
+            {
+                ResponseFormat = ChatResponseFormat.ForJsonSchema(
+                    document.RootElement.Clone(),
+                    schemaName: "result"),
+            };
+        }
+        catch (JsonException)
+        {
+            // A schema the generator emitted should always parse. If it somehow
+            // does not, the prompt still carries it — degrade rather than fail
+            // a call over the belt when the braces are on.
+            return null;
+        }
+    }
+
     private static ChatMessage[] Build(AgentCall call, bool json)
     {
         var user = new StringBuilder(call.TaskPrompt);
@@ -288,11 +319,16 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
 
         if (json)
         {
-            // Belt and braces alongside whatever structured-output support the
-            // provider has: local models in particular will happily wrap JSON in
-            // a markdown fence regardless of what they were asked for, which is
-            // what Unfence exists for.
             user.Append("\n\nReply with JSON only. No prose, no markdown fence.");
+
+            // The shape, not just the format. Without this a model is told to
+            // reply with JSON and left to guess which JSON — a real run answered
+            // {"supported": true} to a Verdict(bool, int, string[]), which is a
+            // reasonable invention given nothing to go on.
+            if (call.ResponseSchema.Length > 0)
+            {
+                user.Append("\n\nIt must match this JSON Schema exactly:\n").Append(call.ResponseSchema);
+            }
         }
 
         return
