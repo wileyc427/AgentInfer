@@ -38,11 +38,11 @@ internal sealed class Rehearsal : IChatClient
             return Assistant("billing");
         }
 
-        if (user.Contains("summarise what the customer is asking for", StringComparison.Ordinal))
+        if (user.Contains("summarize what the customer is asking for", StringComparison.Ordinal))
         {
             return toolsRan
                 ? Assistant(
-                    "Ravensmere Dental were billed twice for the March seat licence and once for a "
+                    "Ravensmere Dental were billed twice for the March seat license and once for a "
                     + "seat removed in February. They want both refunded and the seat count corrected "
                     + "before the next cycle.")
                 : Call("Ticket", "{\"id\":\"T-1041\"}");

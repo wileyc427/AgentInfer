@@ -37,7 +37,7 @@ namespace Agentry.Generator;
 /// <para>
 /// Diagnostics ride alongside the model rather than being reported from
 /// <c>Transform</c>, because <c>Transform</c>'s output is cached: report from
-/// there and an error disappears the second time a file is analysed unchanged.
+/// there and an error disappears the second time a file is analyzed unchanged.
 /// </para>
 /// </remarks>
 [Generator(LanguageNames.CSharp)]
@@ -304,7 +304,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
     {
         if (result.Model is not { PromptFile.Length: > 0 } model) return result;
 
-        var wanted = Normalise(model.PromptFile);
+        var wanted = Normalize(model.PromptFile);
         var matches = ImmutableArray.CreateBuilder<PromptFile>();
 
         foreach (var file in files)
@@ -363,13 +363,13 @@ public sealed class AgentGenerator : IIncrementalGenerator
     /// </remarks>
     private static bool Matches(PromptFile file, string wanted, string projectDirectory)
     {
-        var path = Normalise(file.Path);
+        var path = Normalize(file.Path);
 
         if (string.Equals(path, wanted, StringComparison.OrdinalIgnoreCase)) return true;
 
         if (projectDirectory.Length > 0)
         {
-            var root = Normalise(projectDirectory);
+            var root = Normalize(projectDirectory);
             if (!root.EndsWith("/", StringComparison.Ordinal)) root += "/";
 
             if (path.StartsWith(root, StringComparison.OrdinalIgnoreCase))
@@ -384,16 +384,16 @@ public sealed class AgentGenerator : IIncrementalGenerator
     }
 
     /// <summary>Separators one way round, no leading <c>./</c>.</summary>
-    private static string Normalise(string path)
+    private static string Normalize(string path)
     {
-        var normalised = path.Replace('\\', '/').Trim();
+        var normalized = path.Replace('\\', '/').Trim();
 
-        while (normalised.StartsWith("./", StringComparison.Ordinal))
+        while (normalized.StartsWith("./", StringComparison.Ordinal))
         {
-            normalised = normalised.Substring(2);
+            normalized = normalized.Substring(2);
         }
 
-        return normalised;
+        return normalized;
     }
 
     /// <summary>

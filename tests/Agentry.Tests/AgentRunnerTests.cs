@@ -96,10 +96,10 @@ public sealed class AgentRunnerTests
     public async Task Arguments_are_delimited_by_name()
     {
         var client = new FakeChatClient("ok");
-        await new AgentRunner(client).CompleteTextAsync(Call("Summarise it.", ("spending", "coffee: 22.80")), Ct);
+        await new AgentRunner(client).CompleteTextAsync(Call("Summarize it.", ("spending", "coffee: 22.80")), Ct);
 
         var user = client.Received![1].Text;
-        Assert.Contains("Summarise it.", user);
+        Assert.Contains("Summarize it.", user);
         // Tagged rather than concatenated: a model given three bare paragraphs
         // has to guess which is which, and guesses wrong on the long ones.
         Assert.Contains("<spending>\ncoffee: 22.80\n</spending>", user);
@@ -267,12 +267,12 @@ public sealed class AgentRunnerTests
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
-        var runner = new AgentRunner(new CancellingClient());
+        var runner = new AgentRunner(new CancelingClient());
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => runner.CompleteTextAsync(Call(), cts.Token));
     }
 
-    private sealed class CancellingClient : IChatClient
+    private sealed class CancelingClient : IChatClient
     {
         public Task<ChatResponse> GetResponseAsync(
             IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)

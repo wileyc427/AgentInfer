@@ -97,7 +97,7 @@ internal static class Diagnostics
     /// <summary>
     /// Two sources for one string. One of them is stale and nothing can say
     /// which, so picking a winner would be exactly the silent almost-right
-    /// behaviour the rest of this file exists to prevent.
+    /// behavior the rest of this file exists to prevent.
     /// </summary>
     public static readonly DiagnosticDescriptor ConflictingPromptSources = new(
         id: "AGT009",

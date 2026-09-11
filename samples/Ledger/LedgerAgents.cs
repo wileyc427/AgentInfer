@@ -23,7 +23,7 @@ public sealed record Verdict(
 /// <remarks>
 /// <para>
 /// Note what the methods do <em>not</em> take. Before there were tools,
-/// <c>SummariseAsync</c> was handed the figures as a string. Now the agent
+/// <c>SummarizeAsync</c> was handed the figures as a string. Now the agent
 /// fetches them, which is the point of tools and also the more honest demo —
 /// passing the data in makes the tools decorative.
 /// </para>
@@ -60,7 +60,7 @@ public interface ILedgerAnalyst
     [Prompt("Which categories are over budget, and by how much?")]
     [Strategy(Strategies.Predict, MaxIterations = 16)]
     [Model(ModelRoles.SmallLlm)]
-    public Task<string> SummariseAsync(CancellationToken ct = default);
+    public Task<string> SummarizeAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Returns a record, so the reply is bound to the type. Tools resolve
