@@ -82,6 +82,45 @@ internal static class Diagnostics
         isEnabledByDefault: true);
 
     /// <summary>
+    /// A prompt file the compiler cannot see. The file is sitting in the
+    /// project and looks present, which makes this the one failure here that
+    /// needs the fix in the message rather than a pointer to the docs.
+    /// </summary>
+    public static readonly DiagnosticDescriptor PromptFileNotFound = new(
+        id: "AGT008",
+        title: "Prompt file is not visible to the compiler",
+        messageFormat: "'{0}' names prompt file '{1}'. Add <AdditionalFiles Include=\"{1}\" /> to the project; the compiler cannot see a file that is not listed there.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// Two sources for one string. One of them is stale and nothing can say
+    /// which, so picking a winner would be exactly the silent almost-right
+    /// behaviour the rest of this file exists to prevent.
+    /// </summary>
+    public static readonly DiagnosticDescriptor ConflictingPromptSources = new(
+        id: "AGT009",
+        title: "Agent has both a prompt and a PromptFile",
+        messageFormat: "'{0}' sets both a prompt and PromptFile '{1}'. Keep one; the other is already out of date.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// Only reachable when the project directory is unknown and the path has to
+    /// be matched by suffix. Named rather than folded into AGT008 because
+    /// "found too many" and "found none" have different fixes.
+    /// </summary>
+    public static readonly DiagnosticDescriptor AmbiguousPromptFile = new(
+        id: "AGT010",
+        title: "Prompt file matches more than one AdditionalFiles entry",
+        messageFormat: "'{0}' names prompt file '{1}', which matches {2} files. Make the path project-relative so it names one.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
     /// NOOA equivalent: <c>@hidden</c> keeps a method out of the generated docs
     /// and leaves it perfectly callable, because an in-process object cannot
     /// make its own methods unreachable. Here every tool states its permission
