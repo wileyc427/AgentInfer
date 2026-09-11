@@ -30,9 +30,15 @@ Design reasoning lives in
 
 **P1 and P2 done.** The generator, the attributes, a Predict runtime over
 `Microsoft.Extensions.AI`, `[AgentTool]` with compile-time schemas, enforced
-`[RequiresPermission]`, a tool-calling loop, and `AgentScope` for counting and
-bounding a whole workflow — all verified end to end against a stub endpoint. No
-sandbox and no CodeAct: that is P3 and it is not started.
+`[RequiresPermission]`, a tool-calling loop, `AgentScope` for counting and
+bounding a whole workflow, and `IReplyContract` for a typed reply that binds
+without reflection — all verified end to end against a stub endpoint. No sandbox
+and no CodeAct: that is P3 and it is not started.
+
+The trim and AOT analyzers are on for everything that ships, so the claim that
+nothing is discovered at run time is checked by the build rather than asserted
+here. It was asserted here for a long time and was not true; see the third
+gotcha.
 
 | Package | What it is |
 | --- | --- |
@@ -65,17 +71,16 @@ constant — see [Prompts in files](#prompts-in-files).
 | `AGT004` CodeAct is not implemented | an undecorated method silently executing generated code |
 | `AGT005` Unsupported tool parameter | a model sending a shape the parameter cannot take, learned from a trace |
 | `AGT006` Tool requires `[RequiresPermission]` | `@hidden`, which keeps a method out of the docs and leaves it callable |
-| `AGT007` `[Model]` requires a role | an empty role, which presents as a missing registration somewhere else |
+| `AGT007` `[Model]` requires a non-empty role | a role that silently resolves to nothing and routes to the default model |
+| `AGT008` Prompt file is not in `AdditionalFiles` | a prompt file the compiler cannot see, sitting visibly in the project |
+| `AGT009` Both a prompt and a `PromptFile` | two sources for one string, one of them stale, neither obviously the winner |
+| `AGT010` Prompt file matches more than one entry | a path that names two files and picks one of them quietly |
 | `AGT011` Flags enum has no schema | `"Read, Write"` — a reply that reads correctly and binds to nothing |
 | `AGT012` `[AgentTools]` with no tools | an invoker that offers a model nothing, read as an agent that never calls one |
 | `AGT013` `[AgentryJson]` is not a context | a cast error inside a generated file you cannot open |
 | `AGT014` Return type not serialized | a null `JsonTypeInfo` on the first call |
 | `AGT015` Property bounded twice | two values under one schema keyword, silently |
 | `AGT016` Tool result cannot be rendered | a reflective serializer, one line below the typed binding |
-| `AGT007` `[Model]` requires a non-empty role | a role that silently resolves to nothing and routes to the default model |
-| `AGT008` Prompt file is not in `AdditionalFiles` | a prompt file the compiler cannot see, sitting visibly in the project |
-| `AGT009` Both a prompt and a `PromptFile` | two sources for one string, one of them stale, neither obviously the winner |
-| `AGT010` Prompt file matches more than one entry | a path that names two files and picks one of them quietly |
 
 Each row is a real failure from building against NOOA, moved from production to
 the build. The corollary is a rule this repo tries to hold: **a feature that
@@ -171,6 +176,13 @@ reflecting over the method at startup — which is what `AIFunctionFactory.Creat
 does, and it works until somebody publishes trimmed and the parameter metadata
 is gone. Here there is nothing to reflect over and nothing to trim, and it is
 visible in review.
+
+The same was not true of the **result** for far longer than it should have
+been. Arguments came in through compile-time schemas and compile-time accessors,
+and then the return value went back out through
+`JsonSerializer.Serialize<T>(result)` — one line below, in the same generated
+`switch`. It survived because nothing checked. See
+[Rendering a tool result](#rendering-a-tool-result).
 
 Tools are opt-in one method at a time. A public method without `[AgentTool]` is
 **absent** from the manifest, not hidden from documentation while remaining
@@ -548,13 +560,150 @@ these cannot be declared at all:
   generated code. It belongs in the caller's own loop, with the bound visible.
 
 `samples/Intake` is all three, and it states its own costs rather than only its
-benefits: the response schema is hand-written and nothing checks it still
-matches the record, `AgentryRoles.All` is replaced by an array somebody
-maintains, and the AOT suppressions are written out rather than emitted.
+benefits: you write the `IReplyContract` — schema, `JsonTypeInfo` and value rule
+— for every return type, and nothing checks the schema still matches the record.
+`AgentryRoles.All` is replaced by an array somebody maintains, so a role used in
+code but missing from it validates clean and fails on the call that needs it.
+
+What it does **not** cost is anything to do with trimming. The hand-written
+agent carries no `[RequiresUnreferencedCode]` and suppresses nothing, because
+the contract binds through a `JsonTypeInfo` and checks its own values — the same
+mechanism the generated path uses.
 
 ```bash
 dotnet run --project samples/Intake
 ```
+
+## The typed reply is one object
+
+Three things have to agree about a typed reply: **the schema the model is told,
+the metadata the reply is bound with, and the rule its values must satisfy.**
+They used to live in three places — a string on `AgentCall`, a
+`JsonSerializerOptions`, and reflection inside the runner — and nothing kept
+them in step. This repo paid for that twice: `{"supported": true}` because the
+schema was missing, then `score: 100` because the schema and the validator
+disagreed about what an integer meant.
+
+```csharp
+public interface IReplyContract<T>
+{
+    string Schema { get; }             // what the model is told
+    JsonTypeInfo<T> TypeInfo { get; }  // how the reply is bound
+    string? Validate(T value);         // what the values must satisfy
+}
+```
+
+Generated, they come from one read of the return type and its attributes in one
+pass, so the `"minimum":1,"maximum":5` in the schema and the `is < 1 or > 5` in
+the check **cannot** drift:
+
+```csharp
+file sealed class ReviewAsyncContract : IReplyContract<Verdict>
+{
+    public string Schema => @"…""score"":{""type"":""integer"",""minimum"":1,""maximum"":5}…";
+
+    public JsonTypeInfo<Verdict> TypeInfo => Info;
+
+    public string? Validate(Verdict value)
+    {
+        if (value.Score is < 1 or > 5) return $"score must be between 1 and 5, not {value.Score}";
+        return null;
+    }
+}
+```
+
+It is also what makes the typed path trimmable. `JsonTypeInfo<T>` comes from
+`System.Text.Json`'s own generator, so binding carries no
+`[RequiresUnreferencedCode]`; and validation moves off DataAnnotations, which is
+reflective, has no source-generated equivalent, and — worse — **fails open**
+under trimming: with the property metadata gone it finds nothing to check and
+reports success, on precisely the value a model is most likely to get wrong.
+
+### You declare the context; the generator points at it
+
+```csharp
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    UseStringEnumConverter = true,
+    RespectNullableAnnotations = true,
+    RespectRequiredConstructorParameters = true)]
+[JsonSerializable(typeof(Verdict))]
+internal partial class LedgerJson : JsonSerializerContext;
+
+[assembly: AgentryJson(typeof(LedgerJson))]
+```
+
+Six lines, and they cannot be emitted for you. **Roslyn generators do not
+chain**: a `JsonSerializerContext` written by this generator is invisible to
+`System.Text.Json`'s and compiles to an abstract class with no metadata in it —
+the error is *"does not implement inherited abstract member GetTypeInfo(Type)"*.
+Their *outputs* can reference each other, because both land in the same
+compilation. Only their inputs cannot.
+
+Without the attribute the reflective path stays, annotated and honest.
+`samples/Incident` deliberately declares no context, because opt-in is only
+opt-in if something opts out.
+
+Two diagnostics keep the halves lined up, and they exist because the generator
+can read the attributes driving the *other* generator even though it cannot see
+its output. `AGT013` catches `[AgentryJson]` pointing at something that is not a
+context. `AGT014` catches a return type the context does not serialize:
+
+> `'IAnalyst.SummariseAsync' returns 'Summary', which 'LedgerJson' does not
+> serialize. Add [JsonSerializable(typeof(Summary))] to it.`
+
+### An anticipated failure is returned, not thrown
+
+A model answering `urgency: 9` against a declared 1–5 has not malfunctioned. It
+has done something the caller anticipates and handles by asking again with the
+problem attached — and a repair loop built on `try`/`catch` made every ordinary
+run of `samples/Intake` report two first-chance exceptions in a debugger. They
+were harmless, and they read as a failure.
+
+```csharp
+var attempt = await runner.TryCompleteJsonAsync(call, ExtractContract.Instance, ct);
+if (attempt.Succeeded) return attempt.Value;
+
+var repair = call with { Arguments = [.. call.Arguments, new("previousAttemptFailed", attempt.Problem!)] };
+return await runner.CompleteJsonAsync(repair, ExtractContract.Instance, ct);
+```
+
+`CompleteJsonAsync` still throws, because most callers do not repair and forcing
+all of them through a result type to serve the few who do would be a tax. It is
+implemented by calling the `Try` path, so there is **one** binding path rather
+than two that can disagree about what counts as a usable reply — and
+`attempt.Problem` is the same sentence the exception would have carried, because
+that string is what gets handed back to the model.
+
+Only a reply that will not bind or will not validate comes back as a failed
+attempt. A refused connection, a spent budget or a cancellation still throws:
+those are not outcomes the model produced.
+
+### Rendering a tool result
+
+The mirror image, and the last reflective call in the tool path. The generated
+dispatch bound its arguments with accessors chosen at compile time and then
+handed the result back through `JsonSerializer.Serialize<T>(result)`, which
+picks a converter from the run-time type.
+
+```csharp
+// scalar, enum, or an array of those — the compiler picks the overload
+return global::Agentry.ToolResult.Render(result);
+
+// anything richer — a JsonTypeInfo from the declared context
+return JsonSerializer.Serialize(result, (JsonTypeInfo<IReadOnlyList<CategorySummary>>)…);
+```
+
+The overload set is deliberately the same set `SchemaWriter` accepts as a tool
+*parameter*. Arguments and results travel the same wire, and a result richer
+than anything a parameter may be is a signal the tool is returning a document
+rather than an answer.
+
+With neither available it is `AGT016`, an error rather than a reflective
+fallback — and the asymmetry with the reply path is deliberate. A reply type is
+one per method and visible in the signature; tools are a menu that grows, and a
+silent fallback is exactly how the parameter schemas would have rotted if they
+had not been compile-time from the start.
 
 ## Bounding and counting a whole workflow
 
@@ -710,6 +859,41 @@ the same attribute, the right keyword, because a schema the model cannot satisfy
 is as bad as a validator that disagrees with it. DataAnnotations rather than a
 vocabulary of our own: it is already what a .NET developer reaches for.
 
+**That reasoning was right and incomplete.** Switching the trim analyzer on
+showed that `MaxLengthAttribute`'s own *constructor* carries
+`[RequiresUnreferencedCode]`, because `ValidationAttribute.IsValid` inspects
+arbitrary types. A DataAnnotation is therefore trim-hostile **where it is
+written**, not only where it is enforced: `[Range(1, 5)]` on a record makes that
+record's assembly unverifiable even when nothing ever reflects over it.
+
+So there are now two vocabularies, and both are read:
+
+```csharp
+public sealed record Verdict(
+    bool Approved,
+    [property: Bounded(1, 5)] int Score,           // no IsValid, nothing to inspect
+    [property: Sized(Max = 400)] string Summary,   // characters
+    [property: Sized(Min = 1)] string[] Problems); // items
+```
+
+`[Bounded]` and `[Sized]` live in `Agentry.Abstractions` — netstandard2.0, no
+package references — and have no base class and no behaviour. They are facts the
+generator reads at compile time and metadata nothing needs at run time.
+`[Range]`, `[MinLength]` and `[MaxLength]` still work and are still the right
+choice when the assembly is not a trimming target, which is most of them.
+
+Two constructors on `[Bounded]` rather than one taking `double`, because the
+bound is emitted into a C# pattern as well as into a schema and
+`value.Score is < 1.0` does not compile against an `int`. `[Sized]` takes named
+properties because one end is usually absent and `Sized(0, 400)` does not say
+which end it bounds; an unset end emits no keyword and no check rather than a
+condition that is always true.
+
+One reader serves both families and feeds both the schema and the check. Two
+readers would be two chances to disagree about what a bound means, and the
+disagreement presents as a model told one thing and held to another. Declaring
+both on one property is `AGT015` rather than a precedence rule.
+
 **The model was never told the schema.** With binding enforced, the next run
 failed with `missing required properties: 'approved', 'score', 'problems'` and
 the reply `{"supported": true}`. Which was a reasonable invention: the JSON path
@@ -818,7 +1002,7 @@ readable at
 Reading it is the fastest way to understand the library, and it is how the
 string-routing bug in the first draft was found.
 
-## Three gotchas that cost time here
+## Four gotchas that cost time here
 
 **Analyzers do not flow transitively through `ProjectReference`.** `Agentry`
 references the generator as an `Analyzer`, but a project referencing `Agentry`

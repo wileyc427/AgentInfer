@@ -300,8 +300,14 @@ internal static class SchemaWriter
 
         var isText = member.Type.SpecialType == SpecialType.System_String;
         var size = isText || member.Type is IArrayTypeSymbol ? ".Length" : ".Count";
-        var noun = isText ? "characters" : "items";
         var name = Camel(member.Name);
+
+        // "at least 1 items" is the kind of sentence that makes a reader trust
+        // the rest of the message less, and a model reads this one.
+        string Noun(string count) =>
+            count == "1"
+                ? (isText ? "character" : "item")
+                : (isText ? "characters" : "items");
 
         if (bounds.Minimum is { } min && bounds.Maximum is { } max)
         {
@@ -313,13 +319,13 @@ internal static class SchemaWriter
         if (bounds.MinSize is { } least)
         {
             yield return "if (" + path + size + " < " + least + ") "
-                + "return \"" + name + " must have at least " + least + " " + noun + "\";";
+                + "return \"" + name + " must have at least " + least + " " + Noun(least) + "\";";
         }
 
         if (bounds.MaxSize is { } most)
         {
             yield return "if (" + path + size + " > " + most + ") "
-                + "return \"" + name + " must have at most " + most + " " + noun + "\";";
+                + "return \"" + name + " must have at most " + most + " " + Noun(most) + "\";";
         }
     }
 

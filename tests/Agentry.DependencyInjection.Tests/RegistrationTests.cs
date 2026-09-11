@@ -242,4 +242,61 @@ public sealed class RegistrationTests
         services.AddAgentryModels(TwoProviders(), new Factory().Create)
                 .ValidateRoles(["cheap"]);
     }
+
+    /// <summary>One provider declared, but nothing routed to it.</summary>
+    private static IConfiguration UnusedProvider() => Config(
+        ("Agentry:Providers:local:Endpoint", "http://localhost:11434/v1"),
+        ("Agentry:Providers:openai:Endpoint", "https://api.openai.com/v1"),
+        ("Agentry:Providers:openai:ApiKeyVariable", "TEST_OPENAI_KEY"),
+        ("Agentry:DefaultProvider", "local"),
+        ("Agentry:Models:cheap", "qwen3:latest"));
+
+    [Fact]
+    public void A_provider_nothing_routes_to_is_not_nagged_about()
+    {
+        var warnings = Warnings(() =>
+            new ServiceCollection()
+                .AddAgentryModels(UnusedProvider(), new Factory().Create)
+                .ValidateRoles(["cheap"]));
+
+        // Declaring a provider you are not routing to today is a legitimate
+        // pattern — the samples list local and openai side by side precisely so
+        // a role can be flipped with an environment variable. Warning that the
+        // unused one has no key is noise about a call nothing will make, and it
+        // reads as a problem at the top of every run.
+        Assert.DoesNotContain("TEST_OPENAI_KEY", warnings);
+    }
+
+    [Fact]
+    public void A_provider_a_role_does_use_is_still_nagged_about()
+    {
+        Environment.SetEnvironmentVariable("TEST_OPENAI_KEY", null);
+
+        var warnings = Warnings(() =>
+            new ServiceCollection()
+                .AddAgentryModels(TwoProviders(), new Factory().Create)
+                .ValidateRoles(["accurate", "cheap"]));
+
+        // "accurate" binds to openai, so the missing key will fail the first
+        // call that needs it. That is worth saying at startup.
+        Assert.Contains("TEST_OPENAI_KEY", warnings);
+    }
+
+    private static string Warnings(Action act)
+    {
+        var original = Console.Error;
+        var captured = new StringWriter();
+
+        try
+        {
+            Console.SetError(captured);
+            act();
+        }
+        finally
+        {
+            Console.SetError(original);
+        }
+
+        return captured.ToString();
+    }
 }
