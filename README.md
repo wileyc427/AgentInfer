@@ -68,6 +68,10 @@ constant — see [Prompts in files](#prompts-in-files).
 | `AGT007` `[Model]` requires a role | an empty role, which presents as a missing registration somewhere else |
 | `AGT011` Flags enum has no schema | `"Read, Write"` — a reply that reads correctly and binds to nothing |
 | `AGT012` `[AgentTools]` with no tools | an invoker that offers a model nothing, read as an agent that never calls one |
+| `AGT013` `[AgentryJson]` is not a context | a cast error inside a generated file you cannot open |
+| `AGT014` Return type not serialized | a null `JsonTypeInfo` on the first call |
+| `AGT015` Property bounded twice | two values under one schema keyword, silently |
+| `AGT016` Tool result cannot be rendered | a reflective serializer, one line below the typed binding |
 | `AGT007` `[Model]` requires a non-empty role | a role that silently resolves to nothing and routes to the default model |
 | `AGT008` Prompt file is not in `AdditionalFiles` | a prompt file the compiler cannot see, sitting visibly in the project |
 | `AGT009` Both a prompt and a `PromptFile` | two sources for one string, one of them stale, neither obviously the winner |
