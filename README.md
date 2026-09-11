@@ -30,9 +30,9 @@ Design reasoning lives in
 
 **P1 and P2 done.** The generator, the attributes, a Predict runtime over
 `Microsoft.Extensions.AI`, `[AgentTool]` with compile-time schemas, enforced
-`[RequiresPermission]`, and a tool-calling loop — all verified end to end
-against a stub endpoint. No sandbox and no CodeAct: that is P3 and it is not
-started.
+`[RequiresPermission]`, a tool-calling loop, and `AgentScope` for counting and
+bounding a whole workflow — all verified end to end against a stub endpoint. No
+sandbox and no CodeAct: that is P3 and it is not started.
 
 | Package | What it is |
 | --- | --- |
@@ -65,6 +65,8 @@ constant — see [Prompts in files](#prompts-in-files).
 | `AGT004` CodeAct is not implemented | an undecorated method silently executing generated code |
 | `AGT005` Unsupported tool parameter | a model sending a shape the parameter cannot take, learned from a trace |
 | `AGT006` Tool requires `[RequiresPermission]` | `@hidden`, which keeps a method out of the docs and leaves it callable |
+| `AGT007` `[Model]` requires a role | an empty role, which presents as a missing registration somewhere else |
+| `AGT008` Flags enum has no schema | `"Read, Write"` — a reply that reads correctly and binds to nothing |
 | `AGT007` `[Model]` requires a non-empty role | a role that silently resolves to nothing and routes to the default model |
 | `AGT008` Prompt file is not in `AdditionalFiles` | a prompt file the compiler cannot see, sitting visibly in the project |
 | `AGT009` Both a prompt and a `PromptFile` | two sources for one string, one of them stale, neither obviously the winner |
@@ -370,6 +372,183 @@ next time — with coffee at 22.80 against a 15.00 budget. Fetching the data was
 never the hard part, so the method that has to reason wants a different model
 from the one that classifies.
 
+## Composing agents
+
+The agentic workflow patterns — prompt chaining, routing, parallel sectioning,
+evaluator-optimizer, orchestrator-workers — need **no framework surface here**,
+and that is the strongest thing an interface-shaped agent buys you. An agent is
+an interface, so composing agents is composing interfaces, which is a thing the
+language already does well.
+
+```csharp
+// routing
+var outcome = await triage.SeverityAsync(alert) switch
+{
+    Severity.Ignore      => "No action.",
+    Severity.Investigate => await SweepAsync(alert),
+    Severity.Page        => $"Paging {await triage.OwnerAsync(alert)}. " + await SweepAsync(alert),
+};
+
+// parallel sectioning
+var findings = await Task.WhenAll(services.Select(s => investigator.InvestigateAsync(s)));
+
+// evaluator-optimizer
+var draft = await postmortem.DraftAsync(alert, evidence);
+
+for (var attempt = 1; attempt <= 3; attempt++)
+{
+    var review = await postmortem.ReviewAsync(draft, evidence);
+    if (review.Approved) break;
+
+    draft = await postmortem.ReviseAsync(draft, string.Join("\n", review.Problems));
+}
+```
+
+`samples/Incident` runs all four, and runs with nothing installed:
+
+```bash
+dotnet run --project samples/Incident            # scripted model
+dotnet run --project samples/Incident -- --live  # a real endpoint
+```
+
+A declarative surface for these — `[Route]`, a pipeline builder, a graph — would
+buy a picture. It would cost a file that steps in a debugger, a bound that is a
+number on a line somebody typed, and a stack trace instead of a graph node id.
+The rule above settles it: **a workflow graph is no more checkable at compile
+time than a `for` loop, and strictly harder to read.**
+
+### Routing wants a closed return type
+
+`Task<Severity>`, not `Task<string>`. The model's options and the caller's
+branches are then the same list, checked by the compiler — add a member and
+every `switch` over it stops compiling until somebody decides what the new case
+does, which is the review step a string answer silently skips.
+
+The generator emits the members, so the model is told which words are legal:
+
+```json
+{"type":"string","enum":["ignore","investigate","page"]}
+```
+
+camelCased to match the `JsonStringEnumConverter` the runtime binds with, and
+honouring `[JsonStringEnumMemberName]` where it is used, because a schema that
+named values the binder rejects is worse than no schema at all.
+
+Two smaller things fall out of building it. A scalar schema is **not** sent to
+the provider as a response format — OpenAI-compatible structured output requires
+an object at the root and rejects `{"type":"string"}` outright, so sending it
+turns a call that would have worked into a 400. The prompt still carries it,
+which for a closed set of words is the half that was doing the work. And a bare
+`page` binds as readily as `"page"`: told to reply with JSON and given a list of
+words, a model answers with the word about as often as with the quoted word,
+because the quotes look like formatting.
+
+### One agent as another agent's tool
+
+There is no feature for this, which is the point:
+
+```csharp
+public sealed class Investigators(IServiceInvestigator investigator)
+{
+    [AgentTool("Investigate one service and report what its telemetry shows.")]
+    [RequiresPermission("incident.read")]
+    public async Task<string> Investigate(string service, CancellationToken ct = default)
+    {
+        using var scope = AgentScope.Begin($"investigate:{service}");
+        var finding = await investigator.InvestigateAsync(service, ct);
+
+        return $"{finding.Service}: {(finding.Healthy ? "healthy" : "UNHEALTHY")} — {finding.Evidence}";
+    }
+
+    [AgentTool("Wake the on-call engineer for a team.")]
+    [RequiresPermission("incident.page")]
+    public string Page(Team team, string why) => ...;
+}
+
+[Agent("You are the incident commander. ...", Tools = typeof(Investigators))]
+public interface IIncidentCommander { ... }
+```
+
+A tool may already return `Task<T>`, so a tool whose body starts another agent
+is a tool like any other. Orchestrator-workers needs a class, not a registry.
+
+The permission story comes along unchanged and is better here than it looks in a
+ledger: `Page` wakes a human at three in the morning, and a commander whose
+caller does not hold `incident.page` is never told that paging exists.
+
+Worth comparing against `Task.WhenAll` rather than admiring on its own.
+Sectioning knows the work in advance, costs exactly what the list says, and
+cannot investigate something nobody listed. A commander decides at run time —
+and pays for the deciding, in requests you cannot predict and in a sub-agent
+whose calls are invisible from the call site. Which is why:
+
+## Bounding and counting a whole workflow
+
+```csharp
+using var scope = AgentScope.Begin("incident.triage", maxRequests: 20);
+
+var severity = await triage.SeverityAsync(alert);
+var findings = await Task.WhenAll(services.Select(s => investigator.InvestigateAsync(s)));
+
+logger.LogInformation("{Scope}", scope);
+// incident.triage: 6 operation(s), 14 request(s), 4 tool call(s) in 0.2s
+```
+
+`MaxIterations` bounds one method's tool loop. Nothing bounded the composition,
+so six methods at sixteen iterations was ninety-six requests with no ceiling
+anywhere — and *a bound rather than a suggestion* applies harder one level up
+than it does down there.
+
+**Operations and requests are different numbers and both are wanted.** A typed
+tool-using method is one operation and at least three requests: one round to
+call the tool, one to answer, one to bind. Bounding operations would have missed
+the expensive half. The bound in the sample is 20 because the arithmetic says 14
+— two classifications, then four services at three each — and the first number
+written there was 12, which stopped the workflow on its first run rather than
+returning a triage decision made from half a sweep.
+
+It throws rather than truncating, which is the decision `MaxIterations` got
+wrong the first time: cutting a model off at its bound and keeping what it
+produced gave prose that read fine and said figures were unavailable when they
+were right there.
+
+| Instrument | |
+| --- | --- |
+| `agentry.workflow.operations` | histogram — generation method calls per scope |
+| `agentry.workflow.requests` | histogram — requests actually sent |
+| `agentry.workflow.duration` | histogram — seconds |
+
+Scopes nest and counts roll up, so an orchestration cannot look cheap by hiding
+its work one level down. Per-call spans nest under the scope's span, under the
+same `Agentry` source.
+
+Two decisions in there worth stating, because both went the less obvious way.
+
+**The counter is a `DelegatingChatClient` the runner puts around its own
+client**, not something a host registers. An `AddAgentryBudget()` a consumer
+wires into their `IChatClient` pipeline is more idiomatic and has one fatal
+property: forget it, and `Begin("x", maxRequests: 20)` compiles, reads
+correctly, and does nothing. It also has to be a decorator rather than a check
+in the runner, for the same reason the permission gate lives inside
+`GatedFunction` — the tool loop's rounds belong to `FunctionInvokingChatClient`
+and are invisible from above.
+
+**The scope is ambient, and that is a concession.** An `AsyncLocal` is invisible
+state in a library that otherwise insists on saying things out loud. What makes
+it acceptable is that the declaration is not ambient: the bound is a number in a
+`using` a reviewer reads before the work it governs, and only the plumbing
+flows. Opened without a bound, a scope changes nothing at all.
+
+> Writing the decorator turned up a bug nothing was catching.
+> `DelegatingChatClient` disposes what it wraps, and the tool path builds a
+> `FunctionInvokingChatClient` in a `using` per call — so **every tool-using
+> call was closing the caller's `IChatClient`**. The ledger sample never saw it
+> because its two calls use different clients, and a fake with a no-op
+> `Dispose` cannot tell. On a host where `AddAgentryModels` shares one client
+> per role, the second call through that role fails. Ownership now stops at the
+> decorator: a runner is handed a client, it does not create one, and it must
+> not close one.
+
 ## Measuring whether you need generated code
 
 Every generation method logs what the turn actually cost:
@@ -523,8 +702,19 @@ Needs the .NET 10 SDK.
 ```bash
 dotnet build
 dotnet test
-dotnet run --project samples/Ledger
+dotnet run --project samples/Incident     # four workflow patterns, no model needed
+dotnet run --project samples/Ledger       # tools, permissions, model roles
 ```
+
+`samples/Incident` runs against a scripted `IChatClient` by default, so it works
+with nothing installed. That is one class, because the runtime takes an
+`IChatClient` and nothing else — no HTTP, no provider SDK, no key — which makes
+a workflow's *shape* testable without paying for a token. It is not a substitute
+for a real run: every interesting failure described above came from pointing
+this at qwen3, and a scripted model reproduces none of them, because it is not
+trying to be helpful. Pass `--live` for that.
+
+`samples/Ledger` needs a real endpoint.
 
 The sample reads `samples/Ledger/appsettings.json`:
 
