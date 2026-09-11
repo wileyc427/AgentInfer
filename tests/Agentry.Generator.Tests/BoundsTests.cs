@@ -79,6 +79,18 @@ public sealed class BoundsTests
     }
 
     [Fact]
+    public void A_bound_of_one_is_not_described_in_the_plural()
+    {
+        var (output, _) = GeneratorHarness.Run(Agent(
+            "public sealed record Verdict([property: Sized(Min = 1)] List<string> Problems);"));
+
+        // A model reads this sentence. "at least 1 items" is the kind of phrase
+        // that makes a reader trust the rest of the message less.
+        Assert.Contains("must have at least 1 item\"", output);
+        Assert.DoesNotContain("1 items", output);
+    }
+
+    [Fact]
     public void An_unset_end_emits_nothing_rather_than_a_vacuous_bound()
     {
         var (output, _) = GeneratorHarness.Run(Agent(
