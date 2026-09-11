@@ -87,7 +87,7 @@ internal static class Diagnostics
     /// needs the fix in the message rather than a pointer to the docs.
     /// </summary>
     public static readonly DiagnosticDescriptor PromptFileNotFound = new(
-        id: "AGT007",
+        id: "AGT008",
         title: "Prompt file is not visible to the compiler",
         messageFormat: "'{0}' names prompt file '{1}'. Add <AdditionalFiles Include=\"{1}\" /> to the project; the compiler cannot see a file that is not listed there.",
         category: Category,
@@ -100,7 +100,7 @@ internal static class Diagnostics
     /// behaviour the rest of this file exists to prevent.
     /// </summary>
     public static readonly DiagnosticDescriptor ConflictingPromptSources = new(
-        id: "AGT008",
+        id: "AGT009",
         title: "Agent has both a prompt and a PromptFile",
         messageFormat: "'{0}' sets both a prompt and PromptFile '{1}'. Keep one; the other is already out of date.",
         category: Category,
@@ -109,11 +109,11 @@ internal static class Diagnostics
 
     /// <summary>
     /// Only reachable when the project directory is unknown and the path has to
-    /// be matched by suffix. Named rather than folded into AGT007 because
+    /// be matched by suffix. Named rather than folded into AGT008 because
     /// "found too many" and "found none" have different fixes.
     /// </summary>
     public static readonly DiagnosticDescriptor AmbiguousPromptFile = new(
-        id: "AGT009",
+        id: "AGT010",
         title: "Prompt file matches more than one AdditionalFiles entry",
         messageFormat: "'{0}' names prompt file '{1}', which matches {2} files. Make the path project-relative so it names one.",
         category: Category,
@@ -133,5 +133,17 @@ internal static class Diagnostics
         messageFormat: "'{0}' is an [AgentTool] with no [RequiresPermission]. Say what a caller must hold, even if it is a permission everyone has.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// A role has to be something a router can be configured for. An empty one
+    /// resolves to nothing and presents as a missing registration.
+    /// </summary>
+    public static readonly DiagnosticDescriptor EmptyModelRole = new(
+        id: "AGT007",
+        title: "Model requires a role",
+        messageFormat: "'{0}' has [Model] with an empty role. Name what the method needs — \"accurate\", \"cheap\" — not a model id.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 }

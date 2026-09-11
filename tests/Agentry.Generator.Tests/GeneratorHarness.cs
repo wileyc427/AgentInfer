@@ -69,7 +69,7 @@ internal static class GeneratorHarness
     /// The real one comes from the generated analyzer config the SDK writes.
     /// Stubbing it is what lets a test pin the difference between an exact
     /// project-relative match and the suffix fallback, which is where the
-    /// ambiguity AGT009 reports comes from.
+    /// ambiguity AGT010 reports comes from.
     /// </remarks>
     private sealed class StubOptionsProvider(string? projectDirectory) : AnalyzerConfigOptionsProvider
     {
@@ -96,9 +96,34 @@ internal static class GeneratorHarness
         }
     }
 
+    /// <summary>
+    /// Generated output with verbatim-literal escaping undone.
+    /// </summary>
+    /// <remarks>
+    /// Schemas are emitted inside <c>@"..."</c>, so every quote is doubled and
+    /// an assertion written the obvious way silently fails to match. Undoing it
+    /// once here means a test can quote the schema as the model will see it,
+    /// which is the form worth reading in a failure message.
+    /// </remarks>
+    public static string Unescaped(string output) => output.Replace("\"\"", "\"");
+
+    /// <summary>
+    /// Every assembly the compiled test source might need.
+    /// </summary>
+    /// <remarks>
+    /// Loaded assemblies alone are not enough, and the failure is confusing: an
+    /// attribute whose assembly is absent does not error, it resolves to an
+    /// error type, so the generator simply does not see it and emits a schema
+    /// with the constraint missing. The test then fails on a substring while
+    /// the same code works in the sample. Anything matched by metadata name
+    /// must be named here.
+    /// </remarks>
     private static IEnumerable<MetadataReference> References() =>
         AppDomain.CurrentDomain.GetAssemblies()
             .Where(a => !a.IsDynamic && !string.IsNullOrEmpty(a.Location))
             .Select(a => MetadataReference.CreateFromFile(a.Location))
-            .Append(MetadataReference.CreateFromFile(typeof(AgentAttribute).GetTypeInfo().Assembly.Location));
+            .Append(MetadataReference.CreateFromFile(typeof(AgentAttribute).GetTypeInfo().Assembly.Location))
+            .Append(MetadataReference.CreateFromFile(
+                typeof(System.ComponentModel.DataAnnotations.RangeAttribute).GetTypeInfo().Assembly.Location))
+            .Distinct();
 }

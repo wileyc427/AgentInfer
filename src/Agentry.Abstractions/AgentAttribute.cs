@@ -68,10 +68,10 @@ public sealed class AgentAttribute : Attribute
     /// <para>
     /// The compiler can only see files listed in <c>AdditionalFiles</c>. The
     /// package adds <c>Prompts/**/*.md</c> for you; anything else needs a line
-    /// in the project file, and AGT007 says so with the line to paste.
+    /// in the project file, and AGT008 says so with the line to paste.
     /// </para>
     /// <para>
-    /// Setting this and a prompt together is AGT008. Two sources for one string
+    /// Setting this and a prompt together is AGT009. Two sources for one string
     /// means one of them is stale, and guessing which would be the kind of
     /// silent almost-right behaviour this library exists to remove.
     /// </para>

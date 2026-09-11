@@ -15,6 +15,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Beside the binary, because ConfigurationBuilder reads from BaseDirectory. -->
+    <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+
     <!--
       The same transitivity gap as the analyzer below, for the same reason: the
       buildTransitive targets that ship in the Agentry package do this
@@ -28,9 +31,14 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Agentry/Agentry.csproj" />
+    <ProjectReference Include="../../src/Agentry.DependencyInjection/Agentry.DependencyInjection.csproj" />
     <PackageReference Include="Microsoft.Extensions.AI" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
 
     <!--
       The generator has to be referenced AGAIN, here, and this is the gotcha
