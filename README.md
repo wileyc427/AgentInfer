@@ -175,6 +175,48 @@ verdict: approved=True score=4/5
 `Reclassify` requires `ledger.write`, so it is absent from what the model was
 told — not refused, absent.
 
+## Two methods, two models
+
+```csharp
+[Prompt("Which categories are over budget, and by how much?")]
+[Model("accurate")]
+public Task<string> SummariseAsync(CancellationToken ct = default);
+
+[Prompt("Classify how urgent this request is.")]
+public Task<Urgency> TriageAsync(string request, CancellationToken ct = default);
+```
+
+generates two different call sites in one class:
+
+```csharp
+return await _router.For(@"accurate").CompleteWithToolsAsync(call, …);
+return await _runner.CompleteJsonWithToolsAsync<Urgency>(call, …);
+```
+
+**It names a role, not a model.** `[Model("accurate")]`, never
+`[Model("claude-sonnet-5")]`. A domain assembly should not carry vendor model
+ids: the mapping differs between a laptop and production, changes when a model
+is deprecated, and is configuration rather than design. Same instinct as
+`[RequiresPermission("ledger.read")]` naming a permission rather than a list of
+people.
+
+The router is a constructor dependency **only when some method asks for a
+role**, so the common case stays one dependency and a router in a constructor is
+a signal rather than boilerplate. Configure it with a dictionary, or over keyed
+DI:
+
+```csharp
+services.AddKeyedSingleton<AgentRunner>("accurate", …);
+services.AddSingleton<IModelRouter>(sp =>
+    new DelegateModelRouter(role => sp.GetRequiredKeyedService<AgentRunner>(role)));
+```
+
+Why it exists: given the same correct one-call tool result, `qwen3:latest`
+summarised correctly once and answered *"no categories are over budget"* the
+next time — with coffee at 22.80 against a 15.00 budget. Fetching the data was
+never the hard part, so the method that has to reason wants a different model
+from the one that classifies.
+
 ## Measuring whether you need generated code
 
 Every generation method logs what the turn actually cost:

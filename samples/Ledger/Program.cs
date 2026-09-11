@@ -27,9 +27,19 @@ using var logs = LoggerFactory.Create(builder => builder
     .SetMinimumLevel(LogLevel.Information)
     .AddSimpleConsole(options => options.SingleLine = true));
 
-// Generated. In a real host all three come from DI.
-ILedgerAnalyst analyst = new LedgerAnalystAgent(
-    new AgentRunner(client, logs.CreateLogger<AgentRunner>()), invoker, caller);
+var runner = new AgentRunner(client, logs.CreateLogger<AgentRunner>());
+
+// SummariseAsync asks for the "accurate" role. AGENTRY_ACCURATE_MODEL points it
+// somewhere better; unset, it falls back to the same client, so the sample runs
+// on one endpoint and the split is one environment variable away.
+var accurate = Environment.GetEnvironmentVariable("AGENTRY_ACCURATE_MODEL") is { Length: > 0 } better
+    ? new AgentRunner(Model.For(better), logs.CreateLogger<AgentRunner>())
+    : runner;
+
+var router = new ModelRouter([new KeyValuePair<string, AgentRunner>("accurate", accurate)]);
+
+// Generated. In a real host all four come from DI.
+ILedgerAnalyst analyst = new LedgerAnalystAgent(runner, invoker, caller, router);
 
 try
 {
