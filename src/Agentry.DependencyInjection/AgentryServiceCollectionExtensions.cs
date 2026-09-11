@@ -217,8 +217,23 @@ public sealed class AgentryBuilder(
                 $"[Agentry] Configured model roles nothing asks for: {string.Join(", ", unused)}.");
         }
 
+        // Only providers a configured role actually binds to. Declaring one you
+        // are not routing to today is a legitimate pattern — the samples list
+        // `local` and `openai` side by side precisely so a role can be flipped
+        // with an environment variable — and warning that the unused one has no
+        // key makes that pattern noisy about a call nothing is going to make.
+        //
+        // A dead *role* is different, which is why the warning above is not
+        // scoped the same way: a role is named in code, so a configured one
+        // nothing asks for really is stale.
+        var routed = Models.Values
+            .Select(binding => binding.Provider.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
         foreach (var provider in Providers.Values)
         {
+            if (!routed.Contains(provider.Name)) continue;
+
             if (provider.ApiKeyVariable is { Length: > 0 } variable && provider.ApiKey is null)
             {
                 Console.Error.WriteLine(
