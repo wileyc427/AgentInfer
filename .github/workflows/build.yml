@@ -1,0 +1,119 @@
+# The build, on machines that are not the one it was written on.
+#
+# Two reasons this exists rather than "it builds here". A Roslyn generator is
+# loaded into the compiler, so it is sensitive to the SDK patch version in a way
+# ordinary code is not — "my generator produced nothing" is what a mismatch
+# looks like, with no error anywhere. And the repo turns on
+# TreatWarningsAsErrors, IsAotCompatible, EnableTrimAnalyzer and
+# EnforceCodeStyleInBuild, every one of which can fire on a different SDK than
+# the one a change was written against.
+#
+# So: both major platforms, Release as well as Debug, and the sample actually
+# run rather than only compiled.
+
+name: build
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A superseded push is not worth a runner.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  # Deterministic restore. A CI run that resolves a different package version
+  # from a local one is a difference nobody can see in a diff.
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.configuration }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # Every cell reports. A Windows-only failure is the most likely kind here
+      # and the least useful thing to have cancelled by a Linux one.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        configuration: [Debug, Release]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the SDK this repo pins
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # Printed because the generator's behaviour depends on it, and "which SDK
+      # was that" is the first question every generator failure asks.
+      - name: Report the toolchain
+        run: dotnet --info
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.nuget/packages
+          key: nuget-${{ matrix.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ matrix.os }}-
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore -c ${{ matrix.configuration }} -warnaserror
+
+      - name: Test
+        run: >-
+          dotnet test --no-build -c ${{ matrix.configuration }}
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory ${{ github.workspace }}/test-results
+
+      # The sample is a smoke test, not decoration. It runs against a scripted
+      # IChatClient, so it needs no endpoint and no key — and it exercises the
+      # generator, the tool loop, the permission gate, enum binding and the
+      # scope counters end to end. Compiling it proves none of that.
+      - name: Run the incident sample
+        run: dotnet run --project samples/Incident --no-build -c ${{ matrix.configuration }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.configuration }}
+          path: ${{ github.workspace }}/test-results
+          if-no-files-found: ignore
+
+  pack:
+    name: pack
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # Separate from the build matrix because packing fails differently from
+      # compiling: an analyzer package has no lib/ assemblies, so the rules that
+      # make a normal package well-formed do not apply to it, and the error
+      # arrives at pack time on a project that built cleanly.
+      - name: Pack
+        run: dotnet pack -c Release -o ${{ github.workspace }}/artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: ${{ github.workspace }}/artifacts/*.nupkg
