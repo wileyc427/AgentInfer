@@ -16,12 +16,15 @@ internal sealed class FakeChatClient(string reply) : IChatClient
 {
     public IList<ChatMessage>? Received { get; private set; }
 
+    public ChatOptions? LastOptions { get; private set; }
+
     public Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         Received = [.. messages];
+        LastOptions = options;
         return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, reply)));
     }
 

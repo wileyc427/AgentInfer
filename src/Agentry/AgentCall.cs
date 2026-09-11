@@ -11,8 +11,13 @@ namespace Agentry;
 /// arguments were rendered by generated code that knew their static types, and
 /// the return type arrives as a type parameter rather than a <see cref="Type"/>
 /// to look up.
+/// <para>
+/// A record so derived calls can be built with <c>with</c>. The two-phase JSON
+/// path copies a call and changes two fields, and doing that by hand is how the
+/// response schema got left off it the first time.
+/// </para>
 /// </remarks>
-public sealed class AgentCall
+public sealed record AgentCall
 {
     public required string SystemPrompt { get; init; }
 
@@ -25,6 +30,18 @@ public sealed class AgentCall
     /// Names the agent and method for logs and traces — <c>ILedgerAnalyst.SummariseAsync</c>.
     /// </summary>
     public required string Operation { get; init; }
+
+    /// <summary>
+    /// JSON Schema for what the model must produce, when the return type has a
+    /// shape. Empty for a text return.
+    /// </summary>
+    /// <remarks>
+    /// Generated at compile time from the return type and used twice: set as
+    /// the provider's response format where that is supported, and included in
+    /// the prompt where it is not. Both, because the two fail in different
+    /// places and a model that ignores one often honours the other.
+    /// </remarks>
+    public string ResponseSchema { get; init; } = string.Empty;
 }
 
 /// <summary>Thrown when a generation method cannot produce a usable result.</summary>

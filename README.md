@@ -246,6 +246,30 @@ intended 1–5 and nothing objected, because no range was declared. Value
 constraints need DataAnnotations run after binding — worth doing, and a separate
 decision from making the type itself honest.
 
+**The model was never told the schema.** With binding enforced, the next run
+failed with `missing required properties: 'approved', 'score', 'problems'` and
+the reply `{"supported": true}`. Which was a reasonable invention: the JSON path
+said *"reply with JSON only"* and never said **which** JSON. Tool parameters had
+a compile-time schema; return types did not, so the library's central claim was
+half true.
+
+The generator now emits one for the return type as well:
+
+```json
+{"type":"object",
+ "properties":{"approved":{"type":"boolean"},
+               "score":{"type":"integer"},
+               "problems":{"type":"array","items":{"type":"string"}}},
+ "required":["approved","score","problems"],
+ "additionalProperties":false}
+```
+
+camelCased to match `JsonSerializerOptions.Web`, because a schema that disagrees
+with the binder is worse than none — the model obeys it and the bind fails
+anyway. It is used **twice**: set as the provider's `ResponseFormat` where that
+is supported, and written into the prompt where it is not. Both, because they
+fail in different places.
+
 ### The cheaper fix, before reaching for generated code
 
 `Categories` / `TotalFor` / `BudgetFor` is a chatty API: 1 + 2N calls to answer

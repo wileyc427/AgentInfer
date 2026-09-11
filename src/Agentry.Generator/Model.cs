@@ -38,7 +38,8 @@ internal sealed record MethodModel(
     string ReturnType,
     EquatableArray<ParameterModel> Parameters,
     string? CancellationTokenParameter,
-    int MaxIterations) : IEquatable<MethodModel>;
+    int MaxIterations,
+    string ReturnSchema) : IEquatable<MethodModel>;
 
 internal sealed record ParameterModel(string Name, string Type, bool IsString) : IEquatable<ParameterModel>;
 

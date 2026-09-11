@@ -218,6 +218,12 @@ public sealed class AgentGenerator : IIncrementalGenerator
         return new EquatableArray<ToolModel>(tools.ToImmutable());
     }
 
+    /// <summary>The T of a Task&lt;T&gt;, for describing what the model must produce.</summary>
+    private static ITypeSymbol ReturnTypeOf(IMethodSymbol method) =>
+        method.ReturnType is INamedTypeSymbol { IsGenericType: true } named
+            ? named.TypeArguments[0]
+            : method.ReturnType;
+
     /// <summary>How the invoker has to treat this tool's result.</summary>
     private static ToolReturn ReturnOf(IMethodSymbol method)
     {
@@ -312,7 +318,13 @@ public sealed class AgentGenerator : IIncrementalGenerator
             ReturnType: returnType,
             Parameters: new EquatableArray<ParameterModel>(parameters.ToImmutable()),
             CancellationTokenParameter: cancellationToken,
-            MaxIterations: maxIterations);
+            MaxIterations: maxIterations,
+            // Empty for a text return: a string needs no shape, and telling a
+            // model to reply with {"type":"string"} is a way to get a JSON
+            // document containing prose.
+            ReturnSchema: shape == ReturnShape.Json
+                ? SchemaWriter.TryWriteReturn(ReturnTypeOf(method)) ?? string.Empty
+                : string.Empty);
     }
 
     private static bool TryReadReturn(ITypeSymbol returnType, out ReturnShape shape, out string type)

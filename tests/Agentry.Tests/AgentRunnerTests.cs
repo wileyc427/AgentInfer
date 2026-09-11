@@ -100,6 +100,45 @@ public sealed class AgentRunnerTests
 
     private sealed record Report(bool Approved, int Score, string[] Problems);
 
+    private const string ReportSchema =
+        """{"type":"object","properties":{"approved":{"type":"boolean"}},"required":["approved"],"additionalProperties":false}""";
+
+    [Fact]
+    public async Task The_model_is_told_the_shape_not_only_the_format()
+    {
+        var client = new FakeChatClient("""{"approved":true,"score":4,"problems":[]}""");
+
+        await new AgentRunner(client).CompleteJsonAsync<Report>(
+            Call() with { ResponseSchema = ReportSchema }, ct: Ct);
+
+        // "Reply with JSON" alone left a model guessing which JSON; a real run
+        // answered {"supported": true} to a three-field record.
+        Assert.Contains(ReportSchema, client.Received![1].Text);
+    }
+
+    [Fact]
+    public async Task The_provider_is_asked_to_enforce_the_shape_as_well()
+    {
+        var client = new FakeChatClient("""{"approved":true,"score":4,"problems":[]}""");
+
+        await new AgentRunner(client).CompleteJsonAsync<Report>(
+            Call() with { ResponseSchema = ReportSchema }, ct: Ct);
+
+        // Both, because they fail in different places: a provider that ignores
+        // response_format still sees the prompt, and a model that ignores the
+        // prompt is still constrained by the provider.
+        Assert.IsType<Microsoft.Extensions.AI.ChatResponseFormatJson>(client.LastOptions?.ResponseFormat);
+    }
+
+    [Fact]
+    public async Task A_text_call_asks_the_provider_for_no_particular_format()
+    {
+        var client = new FakeChatClient("fine");
+        await new AgentRunner(client).CompleteTextAsync(Call(), Ct);
+
+        Assert.Null(client.LastOptions?.ResponseFormat);
+    }
+
     [Fact]
     public async Task A_missing_property_is_an_error_at_the_boundary_not_a_null_three_frames_later()
     {

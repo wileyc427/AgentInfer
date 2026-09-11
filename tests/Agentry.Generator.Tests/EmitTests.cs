@@ -89,3 +89,83 @@ public sealed class EmitTests
         Assert.DoesNotContain("global::string", output);
     }
 }
+
+/// <summary>
+/// The schema for what the model must produce.
+/// </summary>
+/// <remarks>
+/// The gap this closes made the library's claim half true: tool parameters had
+/// a compile-time schema and return types did not, so a model was told "reply
+/// with JSON" and left to guess which. A real run answered
+/// <c>{"supported": true}</c> to a <c>Verdict(bool, int, string[])</c>.
+/// </remarks>
+public sealed class ReturnSchemaTests
+{
+    private const string Source = """
+        using System.Collections.Generic;
+        using System.Threading.Tasks;
+        using Agentry;
+
+        namespace Demo;
+
+        public sealed record Verdict(bool Approved, int Score, string[] Problems);
+        public sealed record Row(string Name, decimal Amount);
+        public sealed record Report(Row[] Rows);
+
+        [Agent("You are terse.")]
+        public interface IAnalyst
+        {
+            [Prompt("Judge it.")]
+            public Task<Verdict> ReviewAsync(string draft);
+
+            [Prompt("Summarise it.")]
+            public Task<string> SummariseAsync();
+
+            [Prompt("Report.")]
+            public Task<Report> ReportAsync();
+        }
+        """;
+
+    [Fact]
+    public void A_record_return_gets_an_object_schema_with_everything_required()
+    {
+        var (output, _) = GeneratorHarness.Run(Source);
+
+        Assert.Contains(
+            """{""type"":""object"",""properties"":{""approved"":{""type"":""boolean""},""score"":{""type"":""integer""},""problems"":{""type"":""array"",""items"":{""type"":""string""}}},""required"":[""approved"",""score"",""problems""],""additionalProperties"":false}""",
+            output);
+    }
+
+    [Fact]
+    public void Property_names_are_camelCased_to_match_the_binder()
+    {
+        var (output, _) = GeneratorHarness.Run(Source);
+
+        // A schema that disagrees with JsonSerializerOptions.Web is worse than
+        // none: the model obeys it and the bind fails anyway.
+        Assert.Contains(@"""approved""", output);
+        Assert.DoesNotContain(@"""Approved""", output);
+    }
+
+    [Fact]
+    public void Nested_records_are_described_rather_than_given_up_on()
+    {
+        var (output, _) = GeneratorHarness.Run(Source);
+
+        Assert.Contains(
+            """{""type"":""array"",""items"":{""type"":""object"",""properties"":{""name"":{""type"":""string""},""amount"":{""type"":""number""}}""",
+            output);
+    }
+
+    [Fact]
+    public void A_text_return_gets_no_schema()
+    {
+        var (output, _) = GeneratorHarness.Run(Source);
+
+        // Telling a model to match {"type":"string"} is a way to get a JSON
+        // document containing prose.
+        var summarise = output[output.IndexOf("SummariseAsync", StringComparison.Ordinal)..];
+        var upToCall = summarise[..summarise.IndexOf("CompleteTextAsync", StringComparison.Ordinal)];
+        Assert.DoesNotContain("ResponseSchema", upToCall);
+    }
+}

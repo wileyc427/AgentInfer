@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
@@ -70,6 +71,113 @@ internal static class SchemaWriter
     /// about cycles, and a half-correct object schema is worse than a build
     /// error that says to flatten the parameter.
     /// </remarks>
+    /// <summary>
+    /// A JSON Schema describing a return type, or <c>null</c> if it has none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This closes the gap that made the library's claim half-true. Tool
+    /// <em>parameters</em> got a compile-time schema; return types did not — so
+    /// a model asked for a <c>Verdict(bool, int, string[])</c> was told only
+    /// "reply with JSON" and guessed. A real run answered
+    /// <c>{"supported": true}</c>, which is a reasonable invention given no
+    /// schema and nothing like the type.
+    /// </para>
+    /// <para>
+    /// Names are camelCased to match <c>JsonSerializerOptions.Web</c>, which is
+    /// what binds the reply. A schema that disagrees with the binder is worse
+    /// than none: the model obeys it and the bind still fails.
+    /// </para>
+    /// </remarks>
+    public static string? TryWriteReturn(ITypeSymbol type) =>
+        Describe(type, new HashSet<string>(StringComparer.Ordinal), depth: 0);
+
+    /// <summary>
+    /// One type as JSON Schema. Depth-limited, and cycle-guarded by name.
+    /// </summary>
+    /// <remarks>
+    /// A depth cap rather than full generality. Three levels covers the shapes
+    /// a model can actually be asked to produce reliably, and a schema deep
+    /// enough to need recursion is a signal the return type is too big to ask a
+    /// model for in one go.
+    /// </remarks>
+    private static string? Describe(ITypeSymbol type, HashSet<string> seen, int depth)
+    {
+        if (depth > 3) return null;
+
+        if (JsonTypeFor(type) is { } scalar && scalar != "array")
+        {
+            return $"{{\"type\":\"{scalar}\"}}";
+        }
+
+        if (type is IArrayTypeSymbol array)
+        {
+            var items = Describe(array.ElementType, seen, depth + 1);
+            return items is null ? null : $"{{\"type\":\"array\",\"items\":{items}}}";
+        }
+
+        if (ElementOfList(type) is { } element)
+        {
+            var items = Describe(element, seen, depth + 1);
+            return items is null ? null : $"{{\"type\":\"array\",\"items\":{items}}}";
+        }
+
+        if (type is not INamedTypeSymbol named || named.TypeKind is not (TypeKind.Class or TypeKind.Struct))
+        {
+            return null;
+        }
+
+        var key = named.ToDisplayString();
+        if (!seen.Add(key)) return null;
+
+        try
+        {
+            var properties = new StringBuilder();
+            var required = new StringBuilder();
+            var first = true;
+
+            foreach (var member in named.GetMembers().OfType<IPropertySymbol>())
+            {
+                if (member.DeclaredAccessibility != Accessibility.Public || member.IsStatic) continue;
+                if (member.Name == "EqualityContract") continue;   // records carry this
+
+                var described = Describe(member.Type, seen, depth + 1);
+                if (described is null) return null;
+
+                if (!first)
+                {
+                    properties.Append(',');
+                    required.Append(',');
+                }
+
+                var name = Camel(member.Name);
+                properties.Append('"').Append(name).Append("\":").Append(described);
+                required.Append('"').Append(name).Append('"');
+                first = false;
+            }
+
+            return first
+                ? null   // no properties is not a shape worth asking a model for
+                : $"{{\"type\":\"object\",\"properties\":{{{properties}}},\"required\":[{required}],\"additionalProperties\":false}}";
+        }
+        finally
+        {
+            seen.Remove(key);
+        }
+    }
+
+    /// <summary>The element of an <c>IEnumerable&lt;T&gt;</c>-shaped type.</summary>
+    private static ITypeSymbol? ElementOfList(ITypeSymbol type) =>
+        type is INamedTypeSymbol { IsGenericType: true } named &&
+        named.AllInterfaces.Concat([named]).Any(i => i.ToDisplayString().StartsWith("System.Collections.Generic.IEnumerable<", StringComparison.Ordinal))
+            ? named.TypeArguments.FirstOrDefault()
+            : null;
+
+    private static string Camel(string name) =>
+        name.Length > 0 && char.IsUpper(name[0])
+            ? char.ToLowerInvariant(name[0]) + name.Substring(1)
+            : name;
+
     /// <summary>
     /// The <c>JsonElement</c> accessor for a parameter, chosen at compile time.
     /// </summary>
