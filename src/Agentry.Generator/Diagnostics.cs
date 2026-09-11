@@ -159,4 +159,17 @@ internal static class Diagnostics
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    /// <summary>
+    /// A type asking to be a tool surface, with no tools on it. The generated
+    /// invoker then offers a model nothing, which presents as an agent that
+    /// answers without ever calling anything.
+    /// </summary>
+    public static readonly DiagnosticDescriptor NoToolsOnToolsType = new(
+        id: "AGT012",
+        title: "[AgentTools] type has no tools",
+        messageFormat: "'{0}' has [AgentTools] but no method carries [AgentTool]. Mark the methods a model may call, or drop the attribute.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
 }

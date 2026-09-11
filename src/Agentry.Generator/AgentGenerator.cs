@@ -47,6 +47,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
     private const string PromptAttribute = "Agentry.PromptAttribute";
     private const string StrategyAttribute = "Agentry.StrategyAttribute";
     private const string AgentToolAttribute = "Agentry.AgentToolAttribute";
+    private const string AgentToolsAttribute = "Agentry.AgentToolsAttribute";
     private const string ModelAttribute = "Agentry.ModelAttribute";
     private const string RequiresPermissionAttribute = "Agentry.RequiresPermissionAttribute";
 
@@ -107,6 +108,31 @@ public sealed class AgentGenerator : IIncrementalGenerator
                 spc.AddSource("AgentryRoles.g.cs", Emit.RolesEmitter.Emit(roles));
             });
 
+        // The second way in: [AgentTools] on a type, which emits the invoker and
+        // its manifest and nothing else. Its own pipeline rather than a branch
+        // of the agent one, because it needs no prompt, no prompt file and no
+        // project directory — combining it with those would make a .md
+        // keystroke invalidate a tool type that never referenced one.
+        var toolTypes = context.SyntaxProvider
+            .ForAttributeWithMetadataName(
+                AgentToolsAttribute,
+                predicate: static (node, _) => node is ClassDeclarationSyntax or RecordDeclarationSyntax,
+                transform: static (ctx, ct) => TransformTools(ctx, ct))
+            .Where(static result => result is not null);
+
+        context.RegisterSourceOutput(toolTypes, static (spc, result) =>
+        {
+            foreach (var diagnostic in result!.Diagnostics)
+            {
+                spc.ReportDiagnostic(diagnostic);
+            }
+
+            if (result.Model is { } tools)
+            {
+                spc.AddSource($"{tools.InvokerName}.g.cs", Emit.ToolsEmitter.Emit(tools));
+            }
+        });
+
         context.RegisterSourceOutput(resolved, static (spc, result) =>
         {
             foreach (var diagnostic in result!.Diagnostics)
@@ -119,6 +145,57 @@ public sealed class AgentGenerator : IIncrementalGenerator
                 spc.AddSource($"{model.ImplementationName}.g.cs", AgentEmitter.Emit(model));
             }
         });
+    }
+
+    /// <summary>The result of reading one <c>[AgentTools]</c> type.</summary>
+    private sealed record ToolsResult(
+        ToolsModel? Model,
+        EquatableArray<Diagnostic> Diagnostics);
+
+    /// <summary>
+    /// Reads a type carrying <c>[AgentTools]</c>.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately thin. Everything interesting is in
+    /// <see cref="ReadToolsOf"/>, which the agent path calls too — the whole
+    /// point of this entry is that it produces the same tool models from the
+    /// same reader, so the two ways in cannot describe one type differently.
+    /// </remarks>
+    private static ToolsResult? TransformTools(GeneratorAttributeSyntaxContext ctx, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        if (ctx.TargetSymbol is not INamedTypeSymbol type) return null;
+
+        var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
+        var tools = ReadToolsOf(type, diagnostics, ct);
+
+        var given = ctx.Attributes.FirstOrDefault()?.NamedArguments
+            .FirstOrDefault(pair => pair.Key == "InvokerName").Value.Value as string;
+
+        var invokerName = string.IsNullOrWhiteSpace(given) ? type.Name + "Invoker" : given!.Trim();
+
+        // A type marked [AgentTools] with nothing to dispatch is a mistake
+        // worth naming: it generates an invoker that offers a model nothing,
+        // which presents as an agent that answers without ever calling a tool.
+        if (tools.Count == 0)
+        {
+            diagnostics.Add(Diagnostic.Create(
+                Diagnostics.NoToolsOnToolsType, Location(type), type.Name));
+
+            return new ToolsResult(null, new EquatableArray<Diagnostic>(diagnostics.ToImmutable()));
+        }
+
+        return new ToolsResult(
+            new ToolsModel(
+                Namespace: type.ContainingNamespace.IsGlobalNamespace
+                    ? string.Empty
+                    : type.ContainingNamespace.ToDisplayString(),
+                ToolsType: type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                InvokerName: invokerName,
+                Accessibility: type.DeclaredAccessibility == Accessibility.Public ? "public" : "internal",
+                Tools: tools),
+            new EquatableArray<Diagnostic>(diagnostics.ToImmutable()));
     }
 
     /// <summary>The result of reading one interface: a model, some diagnostics, or both.</summary>
@@ -343,6 +420,24 @@ public sealed class AgentGenerator : IIncrementalGenerator
 
         toolsTypeName = toolsType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
+        return ReadToolsOf(toolsType, diagnostics, ct);
+    }
+
+    /// <summary>
+    /// Every <c>[AgentTool]</c> method on one type.
+    /// </summary>
+    /// <remarks>
+    /// Shared by both ways in: an agent naming <c>Tools = typeof(X)</c>, and
+    /// <c>[AgentTools]</c> on X itself. One reader, because a second one would
+    /// start identical and diverge on the first thing either learned — and the
+    /// symptom would be a manifest that disagrees with a dispatch switch,
+    /// which is the failure this whole file exists to make impossible.
+    /// </remarks>
+    private static EquatableArray<ToolModel> ReadToolsOf(
+        INamedTypeSymbol toolsType,
+        ImmutableArray<Diagnostic>.Builder diagnostics,
+        CancellationToken ct)
+    {
         var tools = ImmutableArray.CreateBuilder<ToolModel>();
 
         foreach (var method in toolsType.GetMembers().OfType<IMethodSymbol>())
@@ -549,6 +644,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
 
         return new MethodModel(
             Name: method.Name,
+            Operation: $"{method.ContainingType.Name}.{method.Name}",
             TaskPrompt: promptAttribute.ConstructorArguments.FirstOrDefault().Value as string ?? string.Empty,
             Shape: shape,
             ReturnType: returnType,
