@@ -212,21 +212,58 @@ There is no `"accurate"` → `"claude-sonnet-5"` table inside Agentry — that
 string is deployment configuration.
 
 ```json
-{ "Agentry": { "Models": { "accurate": "claude-sonnet-5", "cheap": "qwen3:8b" } } }
+{
+  "Agentry": {
+    "DefaultProvider": "local",
+    "Providers": {
+      "local":  { "Endpoint": "http://localhost:11434/v1" },
+      "openai": { "Endpoint": "https://api.openai.com/v1", "ApiKeyVariable": "OPENAI_API_KEY" }
+    },
+    "Models": {
+      "accurate": { "Provider": "openai", "Model": "gpt-5-mini" },
+      "cheap": "qwen3:latest"
+    }
+  }
+}
 ```
 
 ```csharp
-services.AddAgentryModels(configuration, (model, sp) => ClientFor(model))
+services.AddAgentryModels(configuration, (binding, sp) => ClientFor(binding))
         .ValidateRoles(AgentryRoles.All);
 ```
 
-`AddAgentryModels` registers one keyed `AgentRunner` per configured role plus an
+**Roles can live on different providers.** A local model for classification and
+a hosted one for the method that has to reason is the point of per-method
+models, and it does not work if every role shares one endpoint.
+
+A role may be a **bare string**, meaning the default provider — most apps have
+one, and making them write an object to say so would be a tax on the common
+case. With exactly one provider configured, `DefaultProvider` is optional too.
+
+`AddAgentryModels` registers one keyed `AgentRunner` per role plus an
 `IModelRouter` over them. Clients are built **lazily and once**, so registering
 ten models opens no connections.
 
 It does not build clients itself. Constructing an `IChatClient` is
-provider-specific — endpoint, credential, SDK — and a library that guessed would
-be wrong for everyone but its author.
+provider-specific — SDK, credential type, options — and a library that guessed
+would be wrong for everyone but its author. The factory receives a
+`ModelBinding` carrying the role, the model and the resolved provider, because a
+model name means nothing without an endpoint: `gpt-5-mini` against a local
+Ollama is a 404 that reads as a missing model rather than a misrouted request.
+
+Four things fail at **registration** rather than on first use: a role with no
+model, a role naming a provider that is not configured, a provider with no
+endpoint, and — with several providers — a role that names none while
+`DefaultProvider` is unset. A provider whose `ApiKeyVariable` is unset is a
+warning, since a key can arrive from somewhere the configuration cannot see.
+
+### The credential is never in the file
+
+`ApiKeyVariable` names the environment variable holding the key. It is not the
+key, and there is no field that is. A committed file with a key-shaped field is
+a file somebody eventually puts a real key in — the same mistake as the
+working-looking IP address in the Python side's example env file, which sent
+every request to a machine that was not running anything.
 
 ### Role names without magic strings
 
