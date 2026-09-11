@@ -987,6 +987,30 @@ The sample reads `samples/Ledger/appsettings.json`:
 }
 ```
 
+**The samples invert the usual precedence: a value in `appsettings` beats one in
+the environment.** That is not how a production host should be wired and it is
+right here — you edit a file, run, and what you typed is what runs, rather than
+losing to an export from an hour ago that nothing on screen mentions. Each run
+prints the winner and where it came from, so a surprise is one line away rather
+than an investigation.
+
+"Beats" means a value that is **present** wins. A key absent from the file still
+falls through to the environment, which is what stops a committed file blanking
+a real credential. A key you want in a file goes in
+`appsettings.Development.json`, which is gitignored.
+
+Two flags worth knowing while testing:
+
+```bash
+dotnet run --project samples/Incident -- --live --metrics
+```
+
+`--metrics` subscribes to the `Agentry` meter and prints each instrument's
+distribution at exit. Nothing listens to a `Meter` by default, so without it
+`agentry.tool.calls_per_turn` — the number that decides whether a workload ever
+needs generated code — is recorded into a void. A real host points
+OpenTelemetry at the meter instead.
+
 Point `accurate` at something larger to give `SummarizeAsync` a better model
 while everything else stays put. Environment variables layer on top
 (`AGENTRY__MODELS__ACCURATE`), so a run can be redirected without editing a

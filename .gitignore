@@ -5,3 +5,6 @@ obj/
 *.user
 artifacts/
 TestResults/
+
+# Where a local credential goes. Never committed.
+appsettings.Development.json

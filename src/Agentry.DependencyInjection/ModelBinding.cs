@@ -17,13 +17,49 @@ namespace Agentry;
 /// more than one.
 /// </para>
 /// </remarks>
-public sealed record ProviderOptions(string Name, string Endpoint, string? ApiKeyVariable = null)
+public sealed record ProviderOptions(
+    string Name,
+    string Endpoint,
+    string? ApiKeyVariable = null,
+    string? ConfiguredKey = null)
 {
-    /// <summary>The credential for this provider, or null when it needs none.</summary>
+    /// <summary>
+    /// The credential for this provider, or null when it needs none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A key written in configuration wins, and a configuration source that
+    /// does not mention one falls through to the environment variable
+    /// <see cref="ApiKeyVariable"/> names. Present beats absent; absent never
+    /// blanks anything.
+    /// </para>
+    /// <para>
+    /// That asymmetry is the whole safety property. If an absent key counted as
+    /// an empty one, the committed <c>appsettings.json</c> — which has no
+    /// <c>ApiKey</c> in it and should not — would override a real credential
+    /// from the environment and turn every run into a 401 that reads like a
+    /// bad key rather than a missing one.
+    /// </para>
+    /// <para>
+    /// <b>A key in configuration belongs in a file that is not committed.</b>
+    /// The samples read <c>appsettings.Development.json</c>, which is
+    /// gitignored for exactly this. A plausible-looking value in a committed
+    /// file is a value somebody eventually pastes a real one over.
+    /// </para>
+    /// </remarks>
     public string? ApiKey =>
-        ApiKeyVariable is { Length: > 0 } variable
-            ? Environment.GetEnvironmentVariable(variable)
-            : null;
+        ConfiguredKey is { Length: > 0 } written
+            ? written
+            : ApiKeyVariable is { Length: > 0 } variable
+                ? Environment.GetEnvironmentVariable(variable)
+                : null;
+
+    /// <summary>Where the credential came from, for a startup line to report.</summary>
+    public string KeySource =>
+        ConfiguredKey is { Length: > 0 } ? "configuration"
+        : ApiKeyVariable is { Length: > 0 } variable
+            ? (Environment.GetEnvironmentVariable(variable) is { Length: > 0 } ? variable : $"{variable} (unset)")
+            : "none needed";
 }
 
 /// <summary>A role, the model that serves it, and where that model lives.</summary>

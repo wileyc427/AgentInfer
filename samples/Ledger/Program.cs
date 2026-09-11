@@ -9,15 +9,26 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-// appsettings.json is the source of truth; environment variables layer on top
-// so a run can be redirected without editing a committed file. AGENTRY__ENDPOINT
-// and AGENTRY__MODELS__ACCURATE work as overrides — the double underscore is how
-// the environment spells a nested key.
+// Configuration, with the precedence deliberately inverted.
+//
+// The .NET convention is JSON first and environment variables last, so the
+// environment wins. These samples do the opposite: a value written in
+// appsettings beats one in the environment. That is not how a production host
+// should be wired, and it is the right call here — you edit a file, run, and
+// what you typed is what runs, rather than losing to an export from an hour ago
+// that nothing on screen mentions.
+//
+// "Beats" means a value that is PRESENT wins. A key absent from the file still
+// falls through to the environment, which is what keeps a committed file from
+// blanking a real credential.
+//
+// appsettings.Development.json is last and is gitignored: it is where a local
+// key goes.
 var configuration = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
+    .AddEnvironmentVariables()
     .AddJsonFile("appsettings.json", optional: false)
     .AddJsonFile("appsettings.Development.json", optional: true)
-    .AddEnvironmentVariables()
     .Build();
 
 var models = new Models(configuration);
@@ -25,6 +36,11 @@ var models = new Models(configuration);
 using var logs = LoggerFactory.Create(builder => builder
     .SetMinimumLevel(LogLevel.Information)
     .AddSimpleConsole(options => options.SingleLine = true));
+
+// Nothing listens to a Meter by default, so every instrument in this library
+// records into a void. --metrics prints the distributions at exit; a real host
+// points OpenTelemetry at the "Agentry" meter instead.
+var metrics = args.Contains("--metrics", StringComparer.Ordinal) ? new Meters() : null;
 
 // AddAgentryModels registers one keyed AgentRunner per configured role and an
 // IModelRouter over them. ValidateRoles then fails HERE — at startup — if any
@@ -47,10 +63,11 @@ var runner = new AgentRunner(models.Default(), logs.CreateLogger<AgentRunner>())
 
 // Which model each method will actually reach, and from where. A run that does
 // not say this is a run you cannot argue with when the answer looks wrong.
-Console.WriteLine($"default:  {models.DefaultModel} at {models.EndpointOf(models.DefaultProvider)}");
+Console.WriteLine($"default:  {Configured(configuration, "Agentry:DefaultModel")} at {models.EndpointOf(models.DefaultProvider)}");
 foreach (var (role, binding) in agentry.Models)
 {
-    Console.WriteLine($"role {role}: {binding.Model} at {binding.Provider.Endpoint}");
+    Console.WriteLine(
+        $"role {role}: {binding.Model} at {binding.Provider.Endpoint}  (key: {binding.Provider.KeySource})");
 }
 
 // The caller may read the ledger and not write to it. LedgerTools declares a
@@ -92,6 +109,9 @@ catch (Exception error)
     return 1;
 }
 
+metrics?.Report();
+metrics?.Dispose();
+
 return 0;
 
 /// <summary>
@@ -126,4 +146,27 @@ static string Explain(Exception error)
 
         _ => $"{cause.GetType().Name}: {cause.Message}",
     };
+}
+
+/// <summary>
+/// Reports a setting and where it came from.
+/// </summary>
+/// <remarks>
+/// The point of inverting the precedence was not having to go and check the
+/// environment. Printing the winner and its source finishes that job: if a
+/// value is not what you expected, the run already told you which file or
+/// variable to open.
+/// </remarks>
+static string Configured(IConfiguration configuration, string key)
+{
+    var value = configuration[key];
+    if (value is null) return "(unset)";
+
+    // The environment provider is consulted first and overridden by the files,
+    // so an environment value that survived is one no file mentioned.
+    var fromEnvironment = Environment.GetEnvironmentVariable(key.Replace(":", "__"));
+
+    return fromEnvironment == value && fromEnvironment is not null
+        ? $"{value}  (from the environment)"
+        : $"{value}  (from appsettings)";
 }
