@@ -21,12 +21,22 @@ namespace Agentry.Generator;
 /// this record.
 /// </para>
 /// </remarks>
+/// <param name="SystemPrompt">
+/// The prompt itself, whether it was written in the attribute or read from
+/// <paramref name="PromptFile"/>. By the time this reaches the emitter the two
+/// routes are indistinguishable, which is the point.
+/// </param>
+/// <param name="PromptFile">
+/// The file the prompt was read from, for the header comment in the generated
+/// source. Empty when the prompt was written inline.
+/// </param>
 internal sealed record AgentModel(
     string Namespace,
     string InterfaceName,
     string ImplementationName,
     string Accessibility,
     string SystemPrompt,
+    string PromptFile,
     EquatableArray<MethodModel> Methods,
     EquatableArray<ToolModel> Tools,
     string ToolsType);

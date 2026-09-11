@@ -37,7 +37,7 @@ sandbox and no CodeAct: that is P3 and it is not started.
 | Package | What it is |
 | --- | --- |
 | `Agentry.Abstractions` | The attributes. netstandard2.0, zero dependencies |
-| `Agentry.Generator` | The Roslyn incremental generator |
+| `Agentry.Generator` | The Roslyn incremental generator. Not published on its own — it ships inside `Agentry` under `analyzers/dotnet/cs`, so one `PackageReference` is the whole install |
 | `Agentry` | The runtime generated code calls into |
 
 ## The two decisions worth knowing
@@ -51,7 +51,9 @@ nobody had reviewed. Opting into code execution has to be visible.
 **Prompts are string constants, not doc comments.** C# strips XML docs into a
 separate file that is unreachable at run time. That reads like a handicap and
 is the opposite: a constant survives compilation and trimming, and cannot fall
-through to a base class's prompt the way a Python docstring silently can.
+through to a base class's prompt the way a Python docstring silently can. A
+prompt too long to want to live in an attribute goes in a file and is still a
+constant — see [Prompts in files](#prompts-in-files).
 
 ## The diagnostics are the product
 
@@ -65,10 +67,70 @@ through to a base class's prompt the way a Python docstring silently can.
 | `AGT006` Tool requires `[RequiresPermission]` | `@hidden`, which keeps a method out of the docs and leaves it callable |
 | `AGT007` `[Model]` requires a role | an empty role, which presents as a missing registration somewhere else |
 | `AGT008` Flags enum has no schema | `"Read, Write"` — a reply that reads correctly and binds to nothing |
+| `AGT007` `[Model]` requires a non-empty role | a role that silently resolves to nothing and routes to the default model |
+| `AGT008` Prompt file is not in `AdditionalFiles` | a prompt file the compiler cannot see, sitting visibly in the project |
+| `AGT009` Both a prompt and a `PromptFile` | two sources for one string, one of them stale, neither obviously the winner |
+| `AGT010` Prompt file matches more than one entry | a path that names two files and picks one of them quietly |
 
 Each row is a real failure from building against NOOA, moved from production to
 the build. The corollary is a rule this repo tries to hold: **a feature that
 cannot be diagnosed at compile time should be questioned before it is added.**
+
+## Prompts in files
+
+A system prompt grows. At some length it wants markdown, and a raw string
+literal inside an attribute stops being the right home for it:
+
+```csharp
+[Agent(PromptFile = "Prompts/ledger-analyst.md", Tools = typeof(LedgerTools))]
+public interface ILedgerAnalyst { ... }
+```
+
+The generator reads the file **during compilation** and emits the same constant
+an inline prompt produces. The generated file says where the text came from:
+
+```csharp
+// Prompt read at compile time from: Prompts/ledger-analyst.md
+public sealed partial class LedgerAnalystAgent : ILedgerAnalyst
+{
+    private const string SystemPrompt = @"You answer questions about a household ledger.
+    ...
+```
+
+So nothing is opened at run time, and trimming, AOT, and *the prompt in the
+binary is the prompt that ran* all hold exactly as they do for an inline prompt.
+**This buys authoring, not deployment.** Changing a prompt is still a recompile.
+If what you want is tuning prompts without a redeploy, this is not that feature,
+and that feature trades away the audit property above.
+
+The compiler only sees files listed in `AdditionalFiles`. The package ships a
+`buildTransitive` targets file that adds `Prompts/**/*.md` for you:
+
+```xml
+<!-- opt out entirely -->
+<AgentryIncludePromptFiles>false</AgentryIncludePromptFiles>
+
+<!-- or point it somewhere else -->
+<AgentryPromptFiles>Agents/**/*.prompt</AgentryPromptFiles>
+```
+
+Anything outside that glob needs a line in the project file, and `AGT008` says
+so with the line to paste. Paths in the attribute are relative to the project
+directory; the generator resolves them against `ProjectDir`, which the SDK
+already makes visible to analyzers.
+
+Two deliberate limits:
+
+- **Method prompts and tool descriptions stay in attributes.** They are
+  one-liners that belong next to the signature they describe. Splitting the
+  prompt surface across a file *and* the attributes would mean inventing a
+  sectioned file format, which means a parser and a diagnostic for every
+  missing section.
+- **No templating.** Arguments reach the model as separate values appended to
+  the user message, never spliced into the system prompt — which is why an
+  argument cannot rewrite the agent's instructions. Prompt files do not change
+  that, and `{{placeholder}}` is a substantially larger commitment than file
+  I/O.
 
 ## Tools
 
@@ -214,21 +276,58 @@ There is no `"accurate"` → `"claude-sonnet-5"` table inside Agentry — that
 string is deployment configuration.
 
 ```json
-{ "Agentry": { "Models": { "accurate": "claude-sonnet-5", "cheap": "qwen3:8b" } } }
+{
+  "Agentry": {
+    "DefaultProvider": "local",
+    "Providers": {
+      "local":  { "Endpoint": "http://localhost:11434/v1" },
+      "openai": { "Endpoint": "https://api.openai.com/v1", "ApiKeyVariable": "OPENAI_API_KEY" }
+    },
+    "Models": {
+      "accurate": { "Provider": "openai", "Model": "gpt-5-mini" },
+      "cheap": "qwen3:latest"
+    }
+  }
+}
 ```
 
 ```csharp
-services.AddAgentryModels(configuration, (model, sp) => ClientFor(model))
+services.AddAgentryModels(configuration, (binding, sp) => ClientFor(binding))
         .ValidateRoles(AgentryRoles.All);
 ```
 
-`AddAgentryModels` registers one keyed `AgentRunner` per configured role plus an
+**Roles can live on different providers.** A local model for classification and
+a hosted one for the method that has to reason is the point of per-method
+models, and it does not work if every role shares one endpoint.
+
+A role may be a **bare string**, meaning the default provider — most apps have
+one, and making them write an object to say so would be a tax on the common
+case. With exactly one provider configured, `DefaultProvider` is optional too.
+
+`AddAgentryModels` registers one keyed `AgentRunner` per role plus an
 `IModelRouter` over them. Clients are built **lazily and once**, so registering
 ten models opens no connections.
 
 It does not build clients itself. Constructing an `IChatClient` is
-provider-specific — endpoint, credential, SDK — and a library that guessed would
-be wrong for everyone but its author.
+provider-specific — SDK, credential type, options — and a library that guessed
+would be wrong for everyone but its author. The factory receives a
+`ModelBinding` carrying the role, the model and the resolved provider, because a
+model name means nothing without an endpoint: `gpt-5-mini` against a local
+Ollama is a 404 that reads as a missing model rather than a misrouted request.
+
+Four things fail at **registration** rather than on first use: a role with no
+model, a role naming a provider that is not configured, a provider with no
+endpoint, and — with several providers — a role that names none while
+`DefaultProvider` is unset. A provider whose `ApiKeyVariable` is unset is a
+warning, since a key can arrive from somewhere the configuration cannot see.
+
+### The credential is never in the file
+
+`ApiKeyVariable` names the environment variable holding the key. It is not the
+key, and there is no field that is. A committed file with a key-shaped field is
+a file somebody eventually puts a real key in — the same mistake as the
+working-looking IP address in the Python side's example env file, which sent
+every request to a machine that was not running anything.
 
 ### Role names without magic strings
 

@@ -28,6 +28,13 @@ namespace Agentry.Generator;
 ///   access, so it cannot accidentally re-root anything.</item>
 /// </list>
 /// <para>
+/// A <c>PromptFile</c> adds a fourth step between Transform and Emit, because
+/// the text comes from <c>AdditionalTexts</c> rather than from syntax and the
+/// two change independently. Resolving it in its own stage means editing a
+/// prompt file re-runs the resolve and the emit, and editing a <c>.cs</c> file
+/// re-runs the transform — rather than every edit re-running everything.
+/// </para>
+/// <para>
 /// Diagnostics ride alongside the model rather than being reported from
 /// <c>Transform</c>, because <c>Transform</c>'s output is cached: report from
 /// there and an error disappears the second time a file is analysed unchanged.
@@ -53,6 +60,31 @@ public sealed class AgentGenerator : IIncrementalGenerator
                 transform: static (ctx, ct) => Transform(ctx, ct))
             .Where(static result => result is not null);
 
+        // Every AdditionalFile is read, not only the ones some agent names,
+        // because which ones are named is not known until the agents and the
+        // files are combined. The cost is bounded by Roslyn caching this step
+        // per file: it re-reads one file when that file changes, and does
+        // nothing at all on a .cs keystroke.
+        var promptFiles = context.AdditionalTextsProvider
+            .Select(static (text, ct) => new PromptFile(
+                text.Path, text.GetText(ct)?.ToString() ?? string.Empty))
+            .Collect()
+            .Select(static (files, _) => new EquatableArray<PromptFile>(files));
+
+        // Emitted by the SDK into the generated analyzer config. Without it the
+        // only way to match a project-relative path against an absolute one is
+        // by suffix, which is ambiguous the moment two directories hold a file
+        // of the same name — hence AGT010 rather than a guess.
+        var projectDirectory = context.AnalyzerConfigOptionsProvider
+            .Select(static (options, _) =>
+                options.GlobalOptions.TryGetValue("build_property.projectdir", out var directory)
+                    ? directory
+                    : string.Empty);
+
+        var resolved = agents
+            .Combine(promptFiles.Combine(projectDirectory))
+            .Select(static (pair, _) => Resolve(pair.Left!, pair.Right.Left, pair.Right.Right));
+
         // Every role any agent declared, as one constant, for startup validation.
         //
         // Collect() breaks incrementality for this output — any change re-emits
@@ -75,7 +107,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
                 spc.AddSource("AgentryRoles.g.cs", Emit.RolesEmitter.Emit(roles));
             });
 
-        context.RegisterSourceOutput(agents, static (spc, result) =>
+        context.RegisterSourceOutput(resolved, static (spc, result) =>
         {
             foreach (var diagnostic in result!.Diagnostics)
             {
@@ -95,7 +127,18 @@ public sealed class AgentGenerator : IIncrementalGenerator
     /// <see cref="Diagnostic"/> implements equality by value, so an
     /// <see cref="EquatableArray{T}"/> of them behaves.
     /// </remarks>
-    private sealed record Result(AgentModel? Model, EquatableArray<Diagnostic> Diagnostics);
+    /// <param name="Declaration">
+    /// Where to point a diagnostic that cannot be raised until the prompt files
+    /// are in hand. Nothing else in a cached model holds a syntax reference;
+    /// this one is the same concession <see cref="Diagnostic"/> already makes.
+    /// </param>
+    private sealed record Result(
+        AgentModel? Model,
+        EquatableArray<Diagnostic> Diagnostics,
+        Location Declaration);
+
+    /// <summary>One <c>AdditionalFiles</c> entry, flattened to strings.</summary>
+    private sealed record PromptFile(string Path, string Content) : IEquatable<PromptFile>;
 
     private static Result? Transform(GeneratorAttributeSyntaxContext ctx, CancellationToken ct)
     {
@@ -105,11 +148,27 @@ public sealed class AgentGenerator : IIncrementalGenerator
 
         var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
 
-        var systemPrompt = ctx.Attributes
-            .FirstOrDefault()?.ConstructorArguments
+        var attribute = ctx.Attributes.FirstOrDefault();
+
+        var systemPrompt = attribute?.ConstructorArguments
             .FirstOrDefault().Value as string ?? string.Empty;
 
-        if (string.IsNullOrWhiteSpace(systemPrompt))
+        var promptFile = (attribute?.NamedArguments
+            .FirstOrDefault(pair => pair.Key == "PromptFile").Value.Value as string ?? string.Empty).Trim();
+
+        // A file named alongside an inline prompt is not a merge and not a
+        // precedence question — it means one of the two has been edited and the
+        // other has not, and nothing here can tell which.
+        if (promptFile.Length > 0 && !string.IsNullOrWhiteSpace(systemPrompt))
+        {
+            diagnostics.Add(Diagnostic.Create(
+                Diagnostics.ConflictingPromptSources, Location(type), type.Name, promptFile));
+            promptFile = string.Empty;
+        }
+
+        // Deferred when a file is named: whether that prompt is empty is not
+        // knowable until the file has been read, which happens a stage later.
+        if (promptFile.Length == 0 && string.IsNullOrWhiteSpace(systemPrompt))
         {
             diagnostics.Add(Diagnostic.Create(
                 Diagnostics.MissingAgentPrompt, Location(type), type.Name));
@@ -138,11 +197,126 @@ public sealed class AgentGenerator : IIncrementalGenerator
             ImplementationName: implementationName,
             Accessibility: type.DeclaredAccessibility == Microsoft.CodeAnalysis.Accessibility.Public ? "public" : "internal",
             SystemPrompt: systemPrompt,
+            PromptFile: promptFile,
             Methods: new EquatableArray<MethodModel>(methods.ToImmutable()),
             Tools: tools,
             ToolsType: toolsType);
 
-        return new Result(model, new EquatableArray<Diagnostic>(diagnostics.ToImmutable()));
+        return new Result(
+            model,
+            new EquatableArray<Diagnostic>(diagnostics.ToImmutable()),
+            Location(type));
+    }
+
+    /// <summary>
+    /// Fills in a prompt that lives in a file, or says why it could not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Runs after Transform and before Emit, so what reaches the emitter is a
+    /// model whose prompt is a string either way — the generated file is
+    /// identical whichever route the text took, which is the property that
+    /// makes this cost nothing at run time.
+    /// </para>
+    /// <para>
+    /// An agent with no <c>PromptFile</c> is returned untouched rather than
+    /// rebuilt, so the common case adds one reference comparison.
+    /// </para>
+    /// </remarks>
+    private static Result Resolve(Result result, EquatableArray<PromptFile> files, string projectDirectory)
+    {
+        if (result.Model is not { PromptFile.Length: > 0 } model) return result;
+
+        var wanted = Normalise(model.PromptFile);
+        var matches = ImmutableArray.CreateBuilder<PromptFile>();
+
+        foreach (var file in files)
+        {
+            if (Matches(file, wanted, projectDirectory)) matches.Add(file);
+        }
+
+        var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
+        diagnostics.AddRange(result.Diagnostics);
+
+        if (matches.Count == 0)
+        {
+            // The file is usually sitting right there in the project, so the
+            // message carries the line to paste rather than a description of
+            // the problem. This is the first thing anyone hits.
+            diagnostics.Add(Diagnostic.Create(
+                Diagnostics.PromptFileNotFound, result.Declaration, model.InterfaceName, model.PromptFile));
+
+            return result with { Diagnostics = new EquatableArray<Diagnostic>(diagnostics.ToImmutable()) };
+        }
+
+        if (matches.Count > 1)
+        {
+            diagnostics.Add(Diagnostic.Create(
+                Diagnostics.AmbiguousPromptFile,
+                result.Declaration, model.InterfaceName, model.PromptFile, matches.Count));
+
+            return result with { Diagnostics = new EquatableArray<Diagnostic>(diagnostics.ToImmutable()) };
+        }
+
+        var content = matches[0].Content;
+
+        // The same rule an inline prompt gets. A file that exists and says
+        // nothing is the failure AGT001 is for, arriving by a different road.
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            diagnostics.Add(Diagnostic.Create(
+                Diagnostics.MissingAgentPrompt, result.Declaration, model.InterfaceName));
+        }
+
+        return result with
+        {
+            Model = model with { SystemPrompt = content },
+            Diagnostics = new EquatableArray<Diagnostic>(diagnostics.ToImmutable()),
+        };
+    }
+
+    /// <summary>
+    /// Whether one <c>AdditionalFiles</c> entry is the file the agent named.
+    /// </summary>
+    /// <remarks>
+    /// Project-relative when the project directory is known, which is the case
+    /// under MSBuild. The suffix fallback covers hosts that do not set it —
+    /// a driver in a test, most obviously — and is deliberately allowed to
+    /// match more than once so that AGT010 can say so.
+    /// </remarks>
+    private static bool Matches(PromptFile file, string wanted, string projectDirectory)
+    {
+        var path = Normalise(file.Path);
+
+        if (string.Equals(path, wanted, StringComparison.OrdinalIgnoreCase)) return true;
+
+        if (projectDirectory.Length > 0)
+        {
+            var root = Normalise(projectDirectory);
+            if (!root.EndsWith("/", StringComparison.Ordinal)) root += "/";
+
+            if (path.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Equals(path.Substring(root.Length), wanted, StringComparison.OrdinalIgnoreCase);
+            }
+
+            return false;
+        }
+
+        return path.EndsWith("/" + wanted, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Separators one way round, no leading <c>./</c>.</summary>
+    private static string Normalise(string path)
+    {
+        var normalised = path.Replace('\\', '/').Trim();
+
+        while (normalised.StartsWith("./", StringComparison.Ordinal))
+        {
+            normalised = normalised.Substring(2);
+        }
+
+        return normalised;
     }
 
     /// <summary>
