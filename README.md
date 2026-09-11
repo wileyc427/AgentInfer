@@ -68,6 +68,10 @@ constant — see [Prompts in files](#prompts-in-files).
 | `AGT007` `[Model]` requires a role | an empty role, which presents as a missing registration somewhere else |
 | `AGT011` Flags enum has no schema | `"Read, Write"` — a reply that reads correctly and binds to nothing |
 | `AGT012` `[AgentTools]` with no tools | an invoker that offers a model nothing, read as an agent that never calls one |
+| `AGT013` `[AgentryJson]` is not a context | a cast error inside a generated file you cannot open |
+| `AGT014` Return type not serialized | a null `JsonTypeInfo` on the first call |
+| `AGT015` Property bounded twice | two values under one schema keyword, silently |
+| `AGT016` Tool result cannot be rendered | a reflective serializer, one line below the typed binding |
 | `AGT007` `[Model]` requires a non-empty role | a role that silently resolves to nothing and routes to the default model |
 | `AGT008` Prompt file is not in `AdditionalFiles` | a prompt file the compiler cannot see, sitting visibly in the project |
 | `AGT009` Both a prompt and a `PromptFile` | two sources for one string, one of them stale, neither obviously the winner |
@@ -821,6 +825,17 @@ references the generator as an `Analyzer`, but a project referencing `Agentry`
 gets the runtime and no generator. It works through a NuGet package; inside
 this repo every consuming project references the generator again explicitly.
 See `samples/Ledger/Ledger.csproj`.
+
+**`Directory.Build.props` cannot see `$(TargetFramework)`.** It is imported
+before the project body, so any condition on the target framework silently
+evaluates against an empty string. `IsAotCompatible`, `EnableTrimAnalyzer` and
+`EnableSingleFileAnalyzer` sat in that file, conditioned that way, and were
+never once set — so nothing in this repo verified the claim that nothing is
+discovered at run time. Switching them on found fourteen violations in
+`GatedFunction.cs`, the file this README holds up as the reflection-free path.
+They live in `Directory.Build.targets` now, which is imported after the project
+body. The failure leaves no trace anywhere: no error, no warning, just a
+property that is quietly empty.
 
 **The generator must target netstandard2.0**, because it is loaded into the
 compiler. Anything else produces an analyzer the SDK declines to load, with no

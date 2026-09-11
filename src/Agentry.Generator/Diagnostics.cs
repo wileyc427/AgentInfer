@@ -172,4 +172,68 @@ internal static class Diagnostics
         category: Category,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
+
+    /// <summary>
+    /// <c>[assembly: AgentryJson]</c> pointing at something that is not a
+    /// <c>JsonSerializerContext</c>. Without this the failure is a cast error
+    /// inside a generated file the user cannot open.
+    /// </summary>
+    public static readonly DiagnosticDescriptor NotAJsonContext = new(
+        id: "AGT013",
+        title: "[AgentryJson] needs a JsonSerializerContext",
+        messageFormat: "'{0}' does not derive from JsonSerializerContext. [assembly: AgentryJson] names the partial class System.Text.Json's generator fills in.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// A return type the declared context does not serialize.
+    /// </summary>
+    /// <remarks>
+    /// The one diagnostic that pays for the whole opt-in. Generators cannot see
+    /// each other's output, so a missing <c>[JsonSerializable]</c> surfaces as a
+    /// null <c>JsonTypeInfo</c> on the first call — or, when the member name is
+    /// guessed instead, as a compile error in a generated file naming a member
+    /// nobody wrote. Reading the context's own attributes turns both into a line
+    /// that says which type to add and where.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor ReturnTypeNotSerializable = new(
+        id: "AGT014",
+        title: "Return type is not declared in the JSON context",
+        messageFormat: "'{0}' returns '{1}', which '{2}' does not serialize. Add [JsonSerializable(typeof({3}))] to it.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// One property bounded by both attribute families. A silent winner between
+    /// two attributes that each look authoritative is how one of them ends up
+    /// stale — the same reading AGT009 gives a prompt named twice.
+    /// </summary>
+    public static readonly DiagnosticDescriptor ConflictingBounds = new(
+        id: "AGT015",
+        title: "Property is bounded twice",
+        messageFormat: "'{0}' carries both an Agentry bound and a DataAnnotations one. Keep one: [Bounded]/[Sized] are trimmable, [Range]/[MaxLength] are what a .NET developer reaches for.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// A tool returning something no overload can render and no context
+    /// declares.
+    /// </summary>
+    /// <remarks>
+    /// An error rather than a reflective fallback, and the asymmetry with the
+    /// reply path is deliberate. A reply type is one per method and visible in
+    /// the signature; tools are a menu that grows, and a silent fallback is
+    /// exactly how the parameter schemas would have rotted if they had not been
+    /// compile-time from the start.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor UnrenderableToolResult = new(
+        id: "AGT016",
+        title: "Tool result cannot be rendered",
+        messageFormat: "'{0}' returns '{1}', which is not a scalar, an enum or an array of those. Declare [assembly: AgentryJson] with [JsonSerializable(typeof({1}))], or return a simpler shape.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }

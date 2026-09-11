@@ -49,6 +49,8 @@ public sealed class AgentGenerator : IIncrementalGenerator
     private const string AgentToolAttribute = "Agentry.AgentToolAttribute";
     private const string AgentToolsAttribute = "Agentry.AgentToolsAttribute";
     private const string ModelAttribute = "Agentry.ModelAttribute";
+    private const string AgentryJsonAttribute = "Agentry.AgentryJsonAttribute";
+    private const string JsonSerializableAttribute = "System.Text.Json.Serialization.JsonSerializableAttribute";
     private const string RequiresPermissionAttribute = "Agentry.RequiresPermissionAttribute";
 
 
@@ -147,6 +149,66 @@ public sealed class AgentGenerator : IIncrementalGenerator
         });
     }
 
+    /// <summary>
+    /// The assembly's declared <c>JsonSerializerContext</c>, or empty.
+    /// </summary>
+    /// <remarks>
+    /// Read as a string and thrown away with the rest of the symbols. Present
+    /// means this assembly has opted into a trimmable typed path; absent keeps
+    /// the reflective one, which still works and still says so with
+    /// <c>[RequiresUnreferencedCode]</c>.
+    /// </remarks>
+    private static INamedTypeSymbol? JsonContextOf(GeneratorAttributeSyntaxContext ctx)
+    {
+        foreach (var attribute in ctx.SemanticModel.Compilation.Assembly.GetAttributes())
+        {
+            if (attribute.AttributeClass?.ToDisplayString() != AgentryJsonAttribute) continue;
+
+            if (attribute.ConstructorArguments.FirstOrDefault().Value is INamedTypeSymbol context)
+            {
+                return context;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Whether this type is a <c>JsonSerializerContext</c>.</summary>
+    private static bool IsJsonContext(INamedTypeSymbol type)
+    {
+        for (var current = type.BaseType; current is not null; current = current.BaseType)
+        {
+            if (current.ToDisplayString() == "System.Text.Json.Serialization.JsonSerializerContext") return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Every type the context declares <c>[JsonSerializable]</c> for.
+    /// </summary>
+    /// <remarks>
+    /// Read from the consumer's own source, which is the only part of the other
+    /// generator's world this one can see. Its <em>output</em> is invisible;
+    /// the attributes that drive it are not.
+    /// </remarks>
+    private static ImmutableHashSet<string> SerializableTypes(INamedTypeSymbol context)
+    {
+        var types = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
+
+        foreach (var attribute in context.GetAttributes())
+        {
+            if (attribute.AttributeClass?.ToDisplayString() != JsonSerializableAttribute) continue;
+
+            if (attribute.ConstructorArguments.FirstOrDefault().Value is INamedTypeSymbol serialized)
+            {
+                types.Add(serialized.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+            }
+        }
+
+        return types.ToImmutable();
+    }
+
     /// <summary>The result of reading one <c>[AgentTools]</c> type.</summary>
     private sealed record ToolsResult(
         ToolsModel? Model,
@@ -168,7 +230,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
         if (ctx.TargetSymbol is not INamedTypeSymbol type) return null;
 
         var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
-        var tools = ReadToolsOf(type, diagnostics, ct);
+        var tools = ReadToolsOf(type, diagnostics, ct, JsonContextOf(ctx));
 
         var given = ctx.Attributes.FirstOrDefault()?.NamedArguments
             .FirstOrDefault(pair => pair.Key == "InvokerName").Value.Value as string;
@@ -264,6 +326,57 @@ public sealed class AgentGenerator : IIncrementalGenerator
         var implementationName = ImplementationNameFor(type, ctx);
 
         // A model is still produced alongside errors so the IDE keeps offering
+        // A property bounded twice would put two values under one schema
+        // keyword, which is not a precedence question.
+        foreach (var method in methods)
+        {
+            if (method.Shape != ReturnShape.Json) continue;
+
+            foreach (var conflicted in SchemaWriter.DoublyConstrained(ReturnTypeOf(
+                         type.GetMembers().OfType<IMethodSymbol>().First(m => m.Name == method.Name))))
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    Diagnostics.ConflictingBounds, Location(type), conflicted));
+            }
+        }
+
+        // The declared JSON context, checked before anything is emitted against
+        // it. Both failures below would otherwise surface inside a generated
+        // file the user cannot open.
+        var jsonContext = string.Empty;
+
+        if (JsonContextOf(ctx) is { } context)
+        {
+            if (!IsJsonContext(context))
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    Diagnostics.NotAJsonContext, Location(type), context.ToDisplayString()));
+            }
+            else
+            {
+                jsonContext = context.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                var serializable = SerializableTypes(context);
+
+                foreach (var method in methods)
+                {
+                    if (method.Shape != ReturnShape.Json) continue;
+                    if (serializable.Contains(method.ReturnType)) continue;
+
+                    diagnostics.Add(Diagnostic.Create(
+                        Diagnostics.ReturnTypeNotSerializable,
+                        Location(type),
+                        $"{type.Name}.{method.Name}",
+                        method.ReturnType,
+                        context.Name,
+                        method.ReturnType));
+
+                    // Fall back rather than emit a contract that cannot bind.
+                    jsonContext = string.Empty;
+                    break;
+                }
+            }
+        }
+
         // completion for the members that ARE valid. Half a generated file beats
         // a red squiggle on every use site while you fix one attribute.
         var model = new AgentModel(
@@ -277,7 +390,8 @@ public sealed class AgentGenerator : IIncrementalGenerator
             PromptFile: promptFile,
             Methods: new EquatableArray<MethodModel>(methods.ToImmutable()),
             Tools: tools,
-            ToolsType: toolsType);
+            ToolsType: toolsType,
+            JsonContext: jsonContext);
 
         return new Result(
             model,
@@ -420,7 +534,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
 
         toolsTypeName = toolsType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
-        return ReadToolsOf(toolsType, diagnostics, ct);
+        return ReadToolsOf(toolsType, diagnostics, ct, JsonContextOf(ctx));
     }
 
     /// <summary>
@@ -436,7 +550,8 @@ public sealed class AgentGenerator : IIncrementalGenerator
     private static EquatableArray<ToolModel> ReadToolsOf(
         INamedTypeSymbol toolsType,
         ImmutableArray<Diagnostic>.Builder diagnostics,
-        CancellationToken ct)
+        CancellationToken ct,
+        INamedTypeSymbol? jsonContext = null)
     {
         var tools = ImmutableArray.CreateBuilder<ToolModel>();
 
@@ -510,18 +625,85 @@ public sealed class AgentGenerator : IIncrementalGenerator
                     SchemaWriter.ReaderFor(parameter.Type)!));
             }
 
+            var shape = ReturnOf(method);
+            var renderer = RendererFor(method, shape, jsonContext, diagnostics);
+
+            if (renderer is null) continue;
+
             tools.Add(new ToolModel(
                 Name: method.Name,
                 Description: toolAttribute.ConstructorArguments.FirstOrDefault().Value as string ?? string.Empty,
                 ParametersSchema: schema,
                 Permissions: new EquatableArray<string>(permissions),
                 Parameters: new EquatableArray<ToolParameterModel>(parameters.ToImmutable()),
-                Return: ReturnOf(method),
+                Return: shape,
+                Renderer: renderer,
                 TakesCancellationToken: takesToken));
         }
 
         return new EquatableArray<ToolModel>(tools.ToImmutable());
     }
+
+    /// <summary>
+    /// How this tool's result becomes text, or <c>null</c> when it cannot.
+    /// </summary>
+    /// <remarks>
+    /// Three answers, in order of preference. An overload the compiler can pick
+    /// from the static type; failing that, a <c>JsonTypeInfo</c> from the
+    /// assembly's declared context; failing both, AGT016 — because a reflective
+    /// fallback here is how the one remaining reflective call in the tool path
+    /// would stay.
+    /// </remarks>
+    private static string? RendererFor(
+        IMethodSymbol method,
+        ToolReturn shape,
+        INamedTypeSymbol? jsonContext,
+        ImmutableArray<Diagnostic>.Builder diagnostics)
+    {
+        if (shape is ToolReturn.None or ToolReturn.AwaitedNone)
+        {
+            return "global::Agentry.ToolResult.Done()";
+        }
+
+        var returned = ToolResultTypeOf(method);
+
+        if (SchemaWriter.IsRenderable(returned))
+        {
+            return "global::Agentry.ToolResult.Render(result)";
+        }
+
+        var name = returned.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+        if (jsonContext is not null && SerializableTypes(jsonContext).Contains(name))
+        {
+            var context = jsonContext.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+            return "global::System.Text.Json.JsonSerializer.Serialize(result, "
+                + $"(global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<{name}>)"
+                + $"{context}.Default.GetTypeInfo(typeof({name}))!)";
+        }
+
+        diagnostics.Add(Diagnostic.Create(
+            Diagnostics.UnrenderableToolResult, Location(method), Display(method), name));
+
+        return null;
+    }
+
+    /// <summary>
+    /// What a tool actually hands back: the <c>T</c> of a <c>Task&lt;T&gt;</c>,
+    /// or the return type itself.
+    /// </summary>
+    /// <remarks>
+    /// Not <see cref="ReturnTypeOf"/>, which unwraps <em>any</em> generic
+    /// because a generation method always returns <c>Task&lt;T&gt;</c>. A tool
+    /// may return <c>IReadOnlyList&lt;Row&gt;</c> directly, and unwrapping that
+    /// to <c>Row</c> made AGT016 name a type nobody had written.
+    /// </remarks>
+    private static ITypeSymbol ToolResultTypeOf(IMethodSymbol method) =>
+        method.ReturnType is INamedTypeSymbol { IsGenericType: true } named &&
+        named.ConstructedFrom.ToDisplayString() == "System.Threading.Tasks.Task<TResult>"
+            ? named.TypeArguments[0]
+            : method.ReturnType;
 
     /// <summary>The T of a Task&lt;T&gt;, for describing what the model must produce.</summary>
     private static ITypeSymbol ReturnTypeOf(IMethodSymbol method) =>
@@ -657,6 +839,10 @@ public sealed class AgentGenerator : IIncrementalGenerator
             ReturnSchema: shape == ReturnShape.Json
                 ? SchemaWriter.TryWriteReturn(ReturnTypeOf(method)) ?? string.Empty
                 : string.Empty,
+            ReturnChecks: new EquatableArray<string>(
+                shape == ReturnShape.Json
+                    ? [.. SchemaWriter.ReturnChecks(ReturnTypeOf(method))]
+                    : ImmutableArray<string>.Empty),
             ModelRole: modelRole);
     }
 

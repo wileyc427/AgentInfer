@@ -1,0 +1,38 @@
+<Project>
+
+  <!--
+    The trim and AOT analyzers, switched on where they mean something.
+
+    They belong HERE and not in Directory.Build.props, and the difference is not
+    cosmetic. Directory.Build.props is imported before the project body, so
+    $(TargetFramework) is still empty when it is evaluated — and
+    IsTargetFrameworkCompatible('', 'net8.0') is false. These three properties
+    sat in that file with that condition and were never once set, in any
+    project, for the life of the repo. Every claim in the README about nothing
+    being discovered at run time was unverified, and the first thing switching
+    them on found was fourteen violations in GatedFunction.cs, the file the
+    README holds up as the reflection-free path.
+
+    Directory.Build.targets is imported after the project body, so the condition
+    is evaluated against a TargetFramework that exists.
+  -->
+  <PropertyGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))
+                            AND '$(IsPackable)' != 'false'">
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <!--
+    Scoped to what ships. IsPackable is already false on the samples and on the
+    test projects, and it is the right line rather than a convenient one: a
+    library makes a promise to code it will never see, so its promise has to be
+    checked. An application decides for itself at publish time, and a test
+    assembly is never published at all — IL3000 on Assembly.Location in the
+    generator harness describes a deployment that will not happen.
+
+    A sample that wants the check can ask for it by setting the three
+    properties itself.
+  -->
+
+</Project>

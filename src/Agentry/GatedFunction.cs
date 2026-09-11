@@ -1,4 +1,8 @@
+using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 using Microsoft.Extensions.AI;
@@ -61,9 +65,7 @@ internal sealed class GatedFunction : AIFunction
         // it chose at compile time. A round trip, and worth it: the alternative
         // is a second binding path that reads the loosely typed dictionary and
         // has to re-derive types the generator already knew.
-        var json = JsonSerializer.Serialize(
-            arguments.ToDictionary(pair => pair.Key, pair => pair.Value),
-            AgentJson.Default);
+        var json = Render(Name, arguments);
 
         try
         {
@@ -91,13 +93,91 @@ internal sealed class GatedFunction : AIFunction
             return $"Denied: {denied.Message}";
         }
     }
+
+    /// <summary>
+    /// Writes the model's arguments back out as JSON, without a serializer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>JsonSerializer.Serialize</c> over a
+    /// <c>Dictionary&lt;string, object?&gt;</c> has to discover each value's
+    /// type at run time — reflection, on the one path this library claims is
+    /// free of it. It was there for the life of the repo, because the analyzer
+    /// that would have said so was never switched on.
+    /// </para>
+    /// <para>
+    /// Writing it by hand is not a workaround. The values arrive as
+    /// <see cref="JsonElement"/> from the loop that parsed the model's reply,
+    /// so copying them through is the honest operation and
+    /// <see cref="Utf8JsonWriter"/> does exactly that with nothing to reflect
+    /// over. The scalars below are for a caller that assembled arguments itself
+    /// rather than receiving them from a model.
+    /// </para>
+    /// <para>
+    /// Anything else throws, by name. A tool argument this cannot render is a
+    /// shape the generated dispatcher could not have bound either, and a
+    /// mangled value that dispatches is worse than a call that stops.
+    /// </para>
+    /// </remarks>
+    private static string Render(string tool, AIFunctionArguments arguments)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+
+            foreach (var (name, value) in arguments)
+            {
+                writer.WritePropertyName(name);
+
+                switch (value)
+                {
+                    case null: writer.WriteNullValue(); break;
+                    case JsonElement element: element.WriteTo(writer); break;
+                    case JsonNode node: node.WriteTo(writer); break;
+                    case string text: writer.WriteStringValue(text); break;
+                    case bool flag: writer.WriteBooleanValue(flag); break;
+                    case int number: writer.WriteNumberValue(number); break;
+                    case long number: writer.WriteNumberValue(number); break;
+                    case double number: writer.WriteNumberValue(number); break;
+                    case float number: writer.WriteNumberValue(number); break;
+                    case decimal number: writer.WriteNumberValue(number); break;
+
+                    default:
+                        throw new NotSupportedException(
+                            $"'{tool}' was given '{name}' as {value.GetType().Name}, which has no JSON form here. "
+                            + "Tool arguments arrive as JsonElement from the model; anything else must be a scalar.");
+                }
+            }
+
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
 }
 
 /// <summary>Serializer options.</summary>
 internal static class AgentJson
 {
     /// <summary>For the loosely typed hop into the dispatcher.</summary>
-    public static JsonSerializerOptions Default { get; } = new(JsonSerializerOptions.Web);
+    /// <summary>
+    /// What <c>JsonSerializerOptions.Web</c> is, spelled out.
+    /// </summary>
+    /// <remarks>
+    /// The <c>Web</c> getter carries a reflection-based type resolver and is
+    /// annotated because of it, so reading it taints every path that touches
+    /// these options — including tool dispatch, which has nothing reflective
+    /// left in it. Three properties written out cost nothing and keep the
+    /// annotation where it belongs.
+    /// </remarks>
+    public static JsonSerializerOptions Default { get; } = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+        NumberHandling = JsonNumberHandling.AllowReadingFromString,
+    };
 
     /// <summary>
     /// For binding a reply to a return type — where the annotations are meant
@@ -126,10 +206,32 @@ internal static class AgentJson
     /// itself honest.
     /// </para>
     /// </remarks>
-    public static JsonSerializerOptions Binding { get; } = new(JsonSerializerOptions.Web)
-    {
-        RespectNullableAnnotations = true,
-        RespectRequiredConstructorParameters = true,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
-    };
+    private static JsonSerializerOptions? _binding;
+
+    /// <summary>
+    /// A method, not a property, so an annotation can reach the construction.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The non-generic <c>JsonStringEnumConverter</c> builds a converter per
+    /// enum at run time, which Native AOT cannot do. That is true, and it only
+    /// matters on the reflective path — which already says so in its own
+    /// signature. A static property initializer runs in a class constructor and
+    /// cannot inherit an annotation from anywhere, so the warning had nowhere
+    /// to go; a method can carry it.
+    /// </para>
+    /// <para>
+    /// The race on <c>_binding</c> is benign: two threads may each build one,
+    /// and the two are equivalent.
+    /// </para>
+    /// </remarks>
+    [RequiresUnreferencedCode("Reflection-based JSON. An IReplyContract is the trimmable path.")]
+    [RequiresDynamicCode("Reflection-based JSON. An IReplyContract is the trimmable path.")]
+    public static JsonSerializerOptions Binding() =>
+        _binding ??= new JsonSerializerOptions(Default)
+        {
+            RespectNullableAnnotations = true,
+            RespectRequiredConstructorParameters = true,
+            Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+        };
 }

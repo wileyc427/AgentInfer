@@ -1,6 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.Diagnostics.CodeAnalysis;
-
 using Agentry;
 
 namespace Intake;
@@ -9,10 +7,17 @@ namespace Intake;
 public enum Category { Billing, Technical, Account, Spam }
 
 /// <summary>The structured read of one ticket.</summary>
+/// <remarks>
+/// No <c>[Range]</c> on Urgency any more. The bound moved into
+/// <see cref="ExtractContract"/>, beside the schema that declares it to the
+/// model — one read of one file to check they agree. DataAnnotations would
+/// have been enforced reflectively, which under trimming can find nothing to
+/// check and report success.
+/// </remarks>
 public sealed record Extract(
     string Customer,
     Category Category,
-    [property: Range(1, 5)] int Urgency,
+    int Urgency,
     string[] Asks);
 
 /// <summary>
@@ -57,7 +62,9 @@ public interface IIntake
 ///   <c>[Model]</c> attributes, and there are none here, so the roles are
 ///   declared in <see cref="IntakeRoles"/> and startup validation checks what
 ///   somebody remembered to put there.</item>
-///   <item>The AOT suppressions are written out rather than emitted.</item>
+///   <item>The trimming annotations are written out rather than emitted — and
+///   propagated rather than suppressed, which the generated path does not yet
+///   do.</item>
 ///   <item>No AGT001–AGT004: nothing checks that a prompt is non-empty or that
 ///   the return type is one the runtime can bind. Most of those rules police
 ///   hazards the attributes introduce, but not all.</item>
@@ -126,14 +133,13 @@ public sealed class IntakeAgent : IIntake
             TaskPrompt = "What is this ticket about?",
             Operation = "IIntake.ClassifyAsync",
             Arguments = [new KeyValuePair<string, string>("ticket", ticket)],
-
-            // Hand-written, and derived from Category. Add a member and this
-            // string is wrong until somebody remembers — the generator's job,
-            // done by hand.
-            ResponseSchema = """{"type":"string","enum":["billing","technical","account","spam"]}""",
         };
 
-        return await Bind<Category>(role, call, ct).ConfigureAwait(false);
+        // The schema travels with the contract, so there is no second place to
+        // keep it.
+        return await _router.For(role)
+            .CompleteJsonAsync(call, CategoryContract.Instance, ct)
+            .ConfigureAwait(false);
     }
 
     /// <summary>Prose over tools. The plain case, and it is one line.</summary>
@@ -178,20 +184,11 @@ public sealed class IntakeAgent : IIntake
             TaskPrompt = "Read this ticket and extract the customer, the category, how urgent it is, and what they are asking for.",
             Operation = "IIntake.ExtractAsync",
             Arguments = [new KeyValuePair<string, string>("ticketId", ticketId)],
-
-            // The line that rots. Derived from Extract — including the [Range]
-            // on Urgency and the camelCasing the binder expects — and nothing
-            // checks it still agrees with the record. This is precisely what
-            // [Agent] would have emitted, and precisely what you take on by
-            // writing the class.
-            ResponseSchema = """
-                {"type":"object","properties":{"customer":{"type":"string"},"category":{"type":"string","enum":["billing","technical","account","spam"]},"urgency":{"type":"integer","minimum":1,"maximum":5},"asks":{"type":"array","items":{"type":"string"}}},"required":["customer","category","urgency","asks"],"additionalProperties":false}
-                """,
         };
 
         try
         {
-            return await Extract(call, ct).ConfigureAwait(false);
+            return await ExtractOnceAsync(call, ct).ConfigureAwait(false);
         }
         catch (AgentException error)
         {
@@ -208,24 +205,22 @@ public sealed class IntakeAgent : IIntake
                 ],
             };
 
-            return await Extract(repair, ct).ConfigureAwait(false);
+            return await ExtractOnceAsync(repair, ct).ConfigureAwait(false);
         }
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026",
-        Justification = "Binds the reply reflectively, as the generated path does. Replaced by a JsonSerializerContext.")]
-    [UnconditionalSuppressMessage("AOT", "IL3050",
-        Justification = "Binds the reply reflectively, as the generated path does. Replaced by a JsonSerializerContext.")]
-    private Task<Extract> Extract(AgentCall call, CancellationToken ct) =>
+    /// <summary>
+    /// One attempt, so the repair can retry exactly the same call.
+    /// </summary>
+    /// <remarks>
+    /// No <c>[RequiresUnreferencedCode]</c> and nothing suppressed. The
+    /// contract carries a <c>JsonTypeInfo</c> from a source-generated
+    /// <c>JsonSerializerContext</c> and checks its own values, so there is no
+    /// reflection on this path for an annotation to warn about.
+    /// </remarks>
+    private Task<Extract> ExtractOnceAsync(AgentCall call, CancellationToken ct) =>
         _router.For(IntakeRoles.Accurate)
-            .CompleteJsonWithToolsAsync<Extract>(call, _tools, _authorizer, 12, null, ct);
-
-    [UnconditionalSuppressMessage("Trimming", "IL2026",
-        Justification = "Binds the reply reflectively, as the generated path does. Replaced by a JsonSerializerContext.")]
-    [UnconditionalSuppressMessage("AOT", "IL3050",
-        Justification = "Binds the reply reflectively, as the generated path does. Replaced by a JsonSerializerContext.")]
-    private Task<T> Bind<T>(string role, AgentCall call, CancellationToken ct) =>
-        _router.For(role).CompleteJsonAsync<T>(call, null, ct);
+            .CompleteJsonWithToolsAsync(call, ExtractContract.Instance, _tools, _authorizer, 12, ct);
 }
 
 /// <summary>

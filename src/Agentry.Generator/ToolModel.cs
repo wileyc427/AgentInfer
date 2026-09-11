@@ -13,6 +13,18 @@ internal sealed record ToolModel(
     EquatableArray<string> Permissions,
     EquatableArray<ToolParameterModel> Parameters,
     ToolReturn Return,
+
+    /// <summary>
+    /// The expression that turns this tool's result into text, already chosen.
+    /// </summary>
+    /// <remarks>
+    /// <c>ToolResult.Render(result)</c> for a shape the compiler can pick an
+    /// overload for, or a <c>JsonSerializer.Serialize</c> against a
+    /// <c>JsonTypeInfo</c> from the assembly's context. Decided here, where the
+    /// return type is a symbol, so Emit never has to ask a type anything.
+    /// </remarks>
+    string Renderer,
+
     bool TakesCancellationToken) : IEquatable<ToolModel>;
 
 /// <summary>A tool parameter, with the reader that binds it.</summary>

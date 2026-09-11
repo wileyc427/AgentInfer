@@ -299,7 +299,7 @@ public sealed class ToolRoutingTests
 
         // Tying tools to the return type would be a rule nobody would guess.
         Assert.Contains("CompleteWithToolsAsync(call, _tools, _authorizer,", output);
-        Assert.Contains("CompleteJsonWithToolsAsync<global::Demo.Verdict>(call, _tools, _authorizer,", output);
+        Assert.Contains("CompleteJsonWithToolsReflectivelyAsync<global::Demo.Verdict>(call, _tools, _authorizer,", output);
     }
 
     [Fact]

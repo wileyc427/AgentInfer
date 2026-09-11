@@ -71,7 +71,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     /// </remarks>
     [RequiresUnreferencedCode("Binds the result with reflection-based JSON. A generated JsonSerializerContext replaces this.")]
     [RequiresDynamicCode("Binds the result with reflection-based JSON. A generated JsonSerializerContext replaces this.")]
-    public async Task<T> CompleteJsonAsync<T>(
+    public async Task<T> CompleteJsonReflectivelyAsync<T>(
         AgentCall call,
         JsonSerializerOptions? options = null,
         CancellationToken ct = default)
@@ -95,7 +95,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     {
         try
         {
-            var value = JsonSerializer.Deserialize<T>(Quoted(Unfence(text)), options ?? AgentJson.Binding);
+            var value = JsonSerializer.Deserialize<T>(Quoted(Unfence(text)), options ?? AgentJson.Binding());
             if (value is null) throw new AgentException(call.Operation, "the model returned JSON null");
 
             Validate(call, value, text);
@@ -103,22 +103,100 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         }
         catch (JsonException error)
         {
-            // The raw text goes in the message rather than the log, because the
-            // thing you need when this fires is what the model actually said.
-            var hint = LooksLikeToolCalls(text)
-                ? $" The model answered with tool-call JSON instead of a {typeof(T).Name}, "
-                  + "which usually means it was asked for tools and for JSON output at once. "
-                  + "Smaller models resolve that by writing the calls out as text."
-                : string.Empty;
+            throw BindFailure<T>(call, text, error);
+        }
+    }
 
-            // The JsonException already says which property was missing or
-            // null — the single most useful sentence available — and dropping
-            // it left "could not bind", which sends you to the wrong place.
+    /// <summary>
+    /// Runs a typed method through a contract. No reflection, no annotation.
+    /// </summary>
+    /// <remarks>
+    /// The overload that makes the typed path trimmable. Everything derived
+    /// from the return type — schema, binding metadata, value rule — arrives in
+    /// one object the caller supplies, so nothing here has to discover a shape
+    /// at run time. See <see cref="IReplyContract{T}"/> for why the three
+    /// travel together rather than separately.
+    /// </remarks>
+    public async Task<T> CompleteJsonAsync<T>(
+        AgentCall call,
+        IReplyContract<T> contract,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+
+        // A schema on the call AND a contract is not a precedence question: one
+        // of the two has been edited and the other has not, and nothing here
+        // can tell which. Same reading as AGT009 gives a prompt named twice.
+        if (call.ResponseSchema.Length > 0)
+        {
+            throw new ArgumentException(
+                $"{call.Operation}: the call sets ResponseSchema and a contract was supplied. "
+                + "The contract owns the schema — leave ResponseSchema unset.",
+                nameof(call));
+        }
+
+        using var activity = Source.StartActivity(call.Operation);
+        var started = Stopwatch.GetTimestamp();
+
+        var described = call with { ResponseSchema = contract.Schema };
+
+        var response = await _client.GetResponseAsync(Build(described, json: true), FormatFor(described), ct)
+            .ConfigureAwait(false);
+
+        var text = response.Text ?? string.Empty;
+        Log(described, started, text.Length);
+
+        return Bind(described, text, contract);
+    }
+
+    /// <summary>Binds through a contract, or explains why it could not.</summary>
+    private static T Bind<T>(AgentCall call, string text, IReplyContract<T> contract)
+    {
+        T? value;
+
+        try
+        {
+            value = JsonSerializer.Deserialize(Quoted(Unfence(text)), contract.TypeInfo);
+        }
+        catch (JsonException error)
+        {
+            throw BindFailure<T>(call, text, error);
+        }
+
+        if (value is null) throw new AgentException(call.Operation, "the model returned JSON null");
+
+        if (contract.Validate(value) is { } problem)
+        {
             throw new AgentException(
                 call.Operation,
-                $"could not bind the reply to {typeof(T).Name}. {error.Message}{hint} Reply was: {Trim(text)}",
-                error);
+                $"the reply bound to {typeof(T).Name} but failed validation: {problem}. Reply was: {Trim(text)}");
         }
+
+        return value;
+    }
+
+    /// <summary>
+    /// The message a failed bind deserves, shared by both binding paths.
+    /// </summary>
+    /// <remarks>
+    /// The raw text goes in the message rather than the log, because the thing
+    /// you need when this fires is what the model actually said. The
+    /// <see cref="JsonException"/> already names the property that was missing
+    /// or null — the single most useful sentence available — and dropping it
+    /// left "could not bind", which sends you to the wrong place.
+    /// </remarks>
+    private static AgentException BindFailure<T>(AgentCall call, string text, JsonException error)
+    {
+        var hint = LooksLikeToolCalls(text)
+            ? $" The model answered with tool-call JSON instead of a {typeof(T).Name}, "
+              + "which usually means it was asked for tools and for JSON output at once. "
+              + "Smaller models resolve that by writing the calls out as text."
+            : string.Empty;
+
+        return new AgentException(
+            call.Operation,
+            $"could not bind the reply to {typeof(T).Name}. {error.Message}{hint} Reply was: {Trim(text)}",
+            error);
     }
 
     /// <summary>
@@ -174,7 +252,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     /// </remarks>
     [RequiresUnreferencedCode("Binds the result with reflection-based JSON. A generated JsonSerializerContext replaces this.")]
     [RequiresDynamicCode("Binds the result with reflection-based JSON. A generated JsonSerializerContext replaces this.")]
-    public async Task<T> CompleteJsonWithToolsAsync<T>(
+    public async Task<T> CompleteJsonWithToolsReflectivelyAsync<T>(
         AgentCall call,
         ToolInvoker invoker,
         IToolAuthorizer authorizer,
@@ -222,6 +300,59 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
             .ConfigureAwait(false);
 
         return Bind<T>(call, reply.Text ?? string.Empty, options);
+    }
+
+    /// <summary>
+    /// A tool-using typed method, through a contract. Also unannotated.
+    /// </summary>
+    /// <remarks>
+    /// Same two phases as the options-based overload — the loop runs with no
+    /// JSON instruction, then a second call binds with no tools — because
+    /// asking for tools and JSON-only output at once is a contradiction models
+    /// resolve by writing their tool calls into the message body as text.
+    /// </remarks>
+    public async Task<T> CompleteJsonWithToolsAsync<T>(
+        AgentCall call,
+        IReplyContract<T> contract,
+        ToolInvoker invoker,
+        IToolAuthorizer authorizer,
+        int maxIterations = 6,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+
+        // A schema on the call AND a contract is not a precedence question: one
+        // of the two has been edited and the other has not, and nothing here
+        // can tell which. Same reading as AGT009 gives a prompt named twice.
+        if (call.ResponseSchema.Length > 0)
+        {
+            throw new ArgumentException(
+                $"{call.Operation}: the call sets ResponseSchema and a contract was supplied. "
+                + "The contract owns the schema — leave ResponseSchema unset.",
+                nameof(call));
+        }
+        ArgumentNullException.ThrowIfNull(invoker);
+        ArgumentNullException.ThrowIfNull(authorizer);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxIterations, 1);
+
+        using var activity = Source.StartActivity(call.Operation);
+        var started = Stopwatch.GetTimestamp();
+
+        var described = call with { ResponseSchema = contract.Schema };
+
+        var text = await RunWithToolsAsync(described, invoker, authorizer, maxIterations, json: false, started, ct)
+            .ConfigureAwait(false);
+
+        var binding = described with
+        {
+            Operation = described.Operation + " (bind)",
+            Arguments = [.. described.Arguments, new KeyValuePair<string, string>("answer", text)],
+        };
+
+        var reply = await _client.GetResponseAsync(Build(binding, json: true), FormatFor(binding), ct)
+            .ConfigureAwait(false);
+
+        return Bind(described, reply.Text ?? string.Empty, contract);
     }
 
     private async Task<string> RunWithToolsAsync(
