@@ -169,3 +169,65 @@ public sealed class ReturnSchemaTests
         Assert.DoesNotContain("ResponseSchema", upToCall);
     }
 }
+
+/// <summary>
+/// Value constraints, in the schema the model is given.
+/// </summary>
+/// <remarks>
+/// A schema of <c>{"type":"integer"}</c> is a shape and not a contract. A real
+/// run answered <c>score: 100</c> for a field meant to be 1–5 and bound
+/// cleanly, because 100 is a perfectly good integer.
+/// </remarks>
+public sealed class ConstraintTests
+{
+    private const string Source = """
+        using System.ComponentModel.DataAnnotations;
+        using System.Threading.Tasks;
+        using Agentry;
+
+        namespace Demo;
+
+        public sealed record Verdict(
+            [property: Range(1, 5)] int Score,
+            [property: MaxLength(200)] string Summary,
+            [property: MaxLength(3)] string[] Problems);
+
+        [Agent("You are terse.")]
+        public interface IAnalyst
+        {
+            [Prompt("Judge it.")]
+            public Task<Verdict> ReviewAsync();
+        }
+        """;
+
+    [Fact]
+    public void Range_becomes_minimum_and_maximum()
+    {
+        var (output, _) = GeneratorHarness.Run(Source);
+
+        Assert.Contains(
+            """"score":{"type":"integer","minimum":1,"maximum":5}"""",
+            GeneratorHarness.Unescaped(output));
+    }
+
+    [Fact]
+    public void MaxLength_on_a_string_is_maxLength()
+    {
+        var (output, _) = GeneratorHarness.Run(Source);
+
+        Assert.Contains(
+            """"summary":{"type":"string","maxLength":200}"""",
+            GeneratorHarness.Unescaped(output));
+    }
+
+    [Fact]
+    public void MaxLength_on_a_collection_is_maxItems()
+    {
+        var (output, _) = GeneratorHarness.Run(Source);
+
+        // Same attribute, different keyword. Emitting maxLength for an array
+        // would be a schema the model cannot satisfy and a validator that
+        // disagrees with it.
+        Assert.Contains(""""maxItems":3"""", GeneratorHarness.Unescaped(output));
+    }
+}

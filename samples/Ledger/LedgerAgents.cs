@@ -1,9 +1,21 @@
+using System.ComponentModel.DataAnnotations;
+
 using Agentry;
 
 namespace Ledger;
 
 /// <summary>What the critic hands back. A contract, not prose.</summary>
-public sealed record Verdict(bool Approved, int Score, string[] Problems);
+/// <remarks>
+/// The <c>[Range]</c> is not decoration. Without it the schema says
+/// <c>{"type":"integer"}</c>, and a real run answered <c>score: 100</c> out of
+/// five — which bound cleanly, because 100 is a perfectly good integer. The
+/// attribute now does double duty: it is written into the schema the model is
+/// given, and it is checked after binding.
+/// </remarks>
+public sealed record Verdict(
+    bool Approved,
+    [property: Range(1, 5)] int Score,
+    string[] Problems);
 
 /// <summary>
 /// The whole authoring surface: an interface, attributed.

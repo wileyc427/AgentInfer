@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
@@ -86,7 +87,10 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         try
         {
             var value = JsonSerializer.Deserialize<T>(Unfence(text), options ?? AgentJson.Binding);
-            return value ?? throw new AgentException(call.Operation, "the model returned JSON null");
+            if (value is null) throw new AgentException(call.Operation, "the model returned JSON null");
+
+            Validate(call, value, text);
+            return value;
         }
         catch (JsonException error)
         {
@@ -350,6 +354,40 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         var body = trimmed[(firstNewline + 1)..];
         var fence = body.LastIndexOf("```", StringComparison.Ordinal);
         return (fence < 0 ? body : body[..fence]).Trim();
+    }
+
+    /// <summary>
+    /// Checks DataAnnotations on a bound reply.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Binding proves the shape; this proves the values. A real run answered
+    /// <c>score: 100</c> for a field meant to be 1–5 and bound cleanly, because
+    /// 100 is a perfectly good integer. The schema now carries the bound and
+    /// tells the model, and this is the half that does not depend on the model
+    /// having listened.
+    /// </para>
+    /// <para>
+    /// The failure names the property and the rule, and quotes the reply, for
+    /// the same reason the bind failure does: the useful thing is what the model
+    /// actually said.
+    /// </para>
+    /// </remarks>
+    [RequiresUnreferencedCode("DataAnnotations validation walks the type with reflection.")]
+    private static void Validate<T>(AgentCall call, T value, string text)
+    {
+        var results = new List<ValidationResult>();
+
+        if (Validator.TryValidateObject(value!, new ValidationContext(value!), results, validateAllProperties: true))
+        {
+            return;
+        }
+
+        var problems = string.Join("; ", results.Select(r => r.ErrorMessage));
+
+        throw new AgentException(
+            call.Operation,
+            $"the reply bound to {typeof(T).Name} but failed validation: {problems}. Reply was: {Trim(text)}");
     }
 
     /// <summary>
