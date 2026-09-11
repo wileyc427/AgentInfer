@@ -77,7 +77,7 @@ public sealed class InstrumentationTests
     {
         SystemPrompt = "You are terse.",
         TaskPrompt = "Total everything.",
-        Operation = "ILedger.SummariseAsync",
+        Operation = "ILedger.SummarizeAsync",
         Arguments = [],
     };
 

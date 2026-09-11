@@ -10,8 +10,8 @@ attribute, and a Roslyn generator writes the implementation at build time.
     """)]
 public interface ILedgerAnalyst
 {
-    [Prompt("Summarise this spending against its budget in two sentences.")]
-    public Task<string> SummariseAsync(string spending, CancellationToken ct = default);
+    [Prompt("Summarize this spending against its budget in two sentences.")]
+    public Task<string> SummarizeAsync(string spending, CancellationToken ct = default);
 
     [Prompt("Judge whether this summary is supported by the figures given.")]
     public Task<Verdict> ReviewAsync(string summary, string figures, CancellationToken ct = default);
@@ -212,7 +212,7 @@ var invoker = new LedgerAnalystAgentTools(new LedgerTools());
 
 ILedgerAnalyst analyst = new LedgerAnalystAgent(new AgentRunner(client), invoker, caller);
 
-await analyst.SummariseAsync();   // calls tools, then answers
+await analyst.SummarizeAsync();   // calls tools, then answers
 ```
 
 The generated constructor takes the invoker and the authorizer, and **both are
@@ -245,7 +245,7 @@ told — not refused, absent.
 ```csharp
 [Prompt("Which categories are over budget, and by how much?")]
 [Model("accurate")]
-public Task<string> SummariseAsync(CancellationToken ct = default);
+public Task<string> SummarizeAsync(CancellationToken ct = default);
 
 [Prompt("Classify how urgent this request is.")]
 public Task<Urgency> TriageAsync(string request, CancellationToken ct = default);
@@ -341,7 +341,7 @@ public static class ModelRoles
 }
 
 [Model(ModelRoles.Accurate)]
-public Task<string> SummariseAsync(CancellationToken ct = default);
+public Task<string> SummarizeAsync(CancellationToken ct = default);
 ```
 
 `const`, because an attribute argument must be a compile-time constant. A rename
@@ -368,7 +368,7 @@ is a warning instead — dead configuration is worth noticing and not worth
 refusing to start over.
 
 Why it exists: given the same correct one-call tool result, `qwen3:latest`
-summarised correctly once and answered *"no categories are over budget"* the
+summarized correctly once and answered *"no categories are over budget"* the
 next time — with coffee at 22.80 against a 15.00 budget. Fetching the data was
 never the hard part, so the method that has to reason wants a different model
 from the one that classifies.
@@ -432,7 +432,7 @@ The generator emits the members, so the model is told which words are legal:
 ```
 
 camelCased to match the `JsonStringEnumConverter` the runtime binds with, and
-honouring `[JsonStringEnumMemberName]` where it is used, because a schema that
+honoring `[JsonStringEnumMemberName]` where it is used, because a schema that
 named values the binder rejects is worse than no schema at all.
 
 Two smaller things fall out of building it. A scalar schema is **not** sent to
@@ -624,7 +624,7 @@ flows. Opened without a bound, a scope changes nothing at all.
 Every generation method logs what the turn actually cost:
 
 ```
-ILedger.SummariseAsync: 1 of 2 tools offered, 4 call(s) — TotalFor×4
+ILedger.SummarizeAsync: 1 of 2 tools offered, 4 call(s) — TotalFor×4
 ```
 
 and records three instruments under the `Agentry` meter, so the same numbers
@@ -799,7 +799,7 @@ The sample reads `samples/Ledger/appsettings.json`:
 }
 ```
 
-Point `accurate` at something larger to give `SummariseAsync` a better model
+Point `accurate` at something larger to give `SummarizeAsync` a better model
 while everything else stays put. Environment variables layer on top
 (`AGENTRY__MODELS__ACCURATE`), so a run can be redirected without editing a
 committed file.
@@ -832,6 +832,6 @@ so a display-string comparison silently fails. Use `SpecialType`. The first
 draft did it the wrong way, compiled cleanly, and JSON-encoded every string
 argument into its own prompt.
 
-## Licence
+## License
 
 MIT.

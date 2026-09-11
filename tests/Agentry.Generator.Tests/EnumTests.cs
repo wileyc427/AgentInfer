@@ -97,7 +97,7 @@ public sealed class EnumTests
             }
             """);
 
-        // The converter honours this attribute, so the schema has to as well.
+        // The converter honors this attribute, so the schema has to as well.
         Assert.Contains("\"enum\":[\"in_progress\",\"done\"]", GeneratorHarness.Unescaped(output));
     }
 
@@ -153,8 +153,8 @@ public sealed class EnumTests
             [Agent("You are terse.", Tools = typeof(Tools))]
             public interface IAnalyst
             {
-                [Prompt("Summarise.")]
-                public Task<string> SummariseAsync();
+                [Prompt("Summarize.")]
+                public Task<string> SummarizeAsync();
             }
             """);
 
@@ -186,8 +186,8 @@ public sealed class EnumTests
             [Agent("You are terse.", Tools = typeof(Tools))]
             public interface IAnalyst
             {
-                [Prompt("Summarise.")]
-                public Task<string> SummariseAsync();
+                [Prompt("Summarize.")]
+                public Task<string> SummarizeAsync();
             }
             """);
 

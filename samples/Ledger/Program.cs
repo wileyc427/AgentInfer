@@ -68,7 +68,7 @@ ILedgerAnalyst analyst = new LedgerAnalystAgent(runner, invoker, caller, router)
 
 try
 {
-    var summary = await analyst.SummariseAsync();
+    var summary = await analyst.SummarizeAsync();
     Console.WriteLine($"summary: {summary}\n");
 
     var verdict = await analyst.ReviewAsync(summary);

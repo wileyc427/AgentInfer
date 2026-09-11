@@ -34,7 +34,7 @@ internal static class SchemaWriter
     /// </summary>
     /// <remarks>
     /// Matched by metadata name rather than referenced, because this assembly
-    /// is netstandard2.0 and the attribute is .NET 9. Honouring it is not
+    /// is netstandard2.0 and the attribute is .NET 9. Honoring it is not
     /// optional: the binder obeys it, so a schema that ignored it would name
     /// values the binder then rejects — the exact disagreement this file
     /// exists to prevent.
@@ -105,7 +105,7 @@ internal static class SchemaWriter
     /// Emitting the member list would tell the model it may pick exactly one
     /// value of a type whose whole purpose is combining them, and the reply
     /// <c>"Read, Write"</c> then fails at the binder with a message about an
-    /// unrecognised value. Naming it at build time is <c>AGT008</c>.
+    /// unrecognized value. Naming it at build time is <c>AGT008</c>.
     /// </remarks>
     public static INamedTypeSymbol? FlagsEnumIn(ITypeSymbol type) =>
         FlagsEnumIn(type, new HashSet<string>(StringComparer.Ordinal), depth: 0);
@@ -378,7 +378,7 @@ internal static class SchemaWriter
     /// <remarks>
     /// camelCase to match the <c>JsonStringEnumConverter</c> the runtime binds
     /// with, and <c>[JsonStringEnumMemberName]</c> ahead of that, because the
-    /// converter honours it and a schema that did not would name values the
+    /// converter honors it and a schema that did not would name values the
     /// binder rejects.
     /// </remarks>
     private static IEnumerable<string> EnumWireNames(ITypeSymbol type) =>

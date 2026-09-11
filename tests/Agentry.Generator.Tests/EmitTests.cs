@@ -26,8 +26,8 @@ public sealed class EmitTests
         [Agent("You are terse.")]
         public interface IAnalyst
         {
-            [Prompt("Summarise it.")]
-            public Task<string> SummariseAsync(string spending, CancellationToken ct = default);
+            [Prompt("Summarize it.")]
+            public Task<string> SummarizeAsync(string spending, CancellationToken ct = default);
 
             [Prompt("Judge it.")]
             public Task<Verdict> ReviewAsync(string summary, CancellationToken ct = default);
@@ -118,8 +118,8 @@ public sealed class ReturnSchemaTests
             [Prompt("Judge it.")]
             public Task<Verdict> ReviewAsync(string draft);
 
-            [Prompt("Summarise it.")]
-            public Task<string> SummariseAsync();
+            [Prompt("Summarize it.")]
+            public Task<string> SummarizeAsync();
 
             [Prompt("Report.")]
             public Task<Report> ReportAsync();
@@ -164,8 +164,8 @@ public sealed class ReturnSchemaTests
 
         // Telling a model to match {"type":"string"} is a way to get a JSON
         // document containing prose.
-        var summarise = output[output.IndexOf("SummariseAsync", StringComparison.Ordinal)..];
-        var upToCall = summarise[..summarise.IndexOf("CompleteTextAsync", StringComparison.Ordinal)];
+        var summarize = output[output.IndexOf("SummarizeAsync", StringComparison.Ordinal)..];
+        var upToCall = summarize[..summarize.IndexOf("CompleteTextAsync", StringComparison.Ordinal)];
         Assert.DoesNotContain("ResponseSchema", upToCall);
     }
 }
@@ -237,7 +237,7 @@ public sealed class ConstraintTests
 /// </summary>
 /// <remarks>
 /// Motivated by a real run: given the same correct one-call tool result,
-/// qwen3:latest summarised correctly once and wrongly the next time. Fetching
+/// qwen3:latest summarized correctly once and wrongly the next time. Fetching
 /// the data was never the hard part, so the method that has to reason wants a
 /// different model from the one that classifies.
 /// </remarks>
@@ -254,7 +254,7 @@ public sealed class ModelRoutingTests
         {
             [Prompt("Reason about it.")]
             [Model("accurate")]
-            public Task<string> SummariseAsync();
+            public Task<string> SummarizeAsync();
 
             [Prompt("Classify it.")]
             public Task<string> TriageAsync(string request);
