@@ -8,14 +8,10 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
 
     <!--
-      The whole point of this library is that nothing is discovered at run time.
-      Turning these on repo-wide means an accidental reflection call is a build
-      warning (and, with TreatWarningsAsErrors, a build break) rather than a
-      failure in somebody's published app.
+      The trim and AOT analyzers live in Directory.Build.targets, not here. See
+      the comment there: this file is imported before the project sets
+      TargetFramework, so a condition on it silently evaluates to false.
     -->
-    <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsAotCompatible>
-    <EnableTrimAnalyzer Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</EnableTrimAnalyzer>
-    <EnableSingleFileAnalyzer Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</EnableSingleFileAnalyzer>
   </PropertyGroup>
 
   <PropertyGroup Label="Package">
