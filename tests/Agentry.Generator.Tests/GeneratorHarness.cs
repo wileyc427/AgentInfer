@@ -62,5 +62,7 @@ internal static class GeneratorHarness
             .Append(MetadataReference.CreateFromFile(typeof(AgentAttribute).GetTypeInfo().Assembly.Location))
             .Append(MetadataReference.CreateFromFile(
                 typeof(System.ComponentModel.DataAnnotations.RangeAttribute).GetTypeInfo().Assembly.Location))
+            .Append(MetadataReference.CreateFromFile(
+                typeof(System.Text.Json.Serialization.JsonStringEnumMemberNameAttribute).GetTypeInfo().Assembly.Location))
             .Distinct();
 }

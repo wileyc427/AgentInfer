@@ -86,7 +86,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     {
         try
         {
-            var value = JsonSerializer.Deserialize<T>(Unfence(text), options ?? AgentJson.Binding);
+            var value = JsonSerializer.Deserialize<T>(Quoted(Unfence(text)), options ?? AgentJson.Binding);
             if (value is null) throw new AgentException(call.Operation, "the model returned JSON null");
 
             Validate(call, value, text);
@@ -296,6 +296,18 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         {
             using var document = JsonDocument.Parse(call.ResponseSchema);
 
+            // Only an object root goes to the provider. OpenAI-compatible
+            // structured output requires one and rejects {"type":"string"}
+            // outright, so handing it an enum's schema turns a call that would
+            // have worked into a 400 — the belt breaking the braces. The prompt
+            // still carries the schema, and for a closed set of words that is
+            // the half that was doing the work anyway.
+            if (!document.RootElement.TryGetProperty("type", out var kind) ||
+                kind.GetString() != "object")
+            {
+                return null;
+            }
+
             return new ChatOptions
             {
                 ResponseFormat = ChatResponseFormat.ForJsonSchema(
@@ -357,6 +369,40 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     }
 
     /// <summary>
+    /// Quotes a bare word, so a one-word answer is still JSON.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same class of repair as <see cref="Unfence"/>, and it earns its
+    /// place for the same reason: it is what models actually do. Asked for an
+    /// enum, told the legal values, and told to reply with JSON only, a model
+    /// answers <c>high</c> at least as often as <c>"high"</c> — the word is the
+    /// answer and the quotes look like formatting. Rejecting that is technically
+    /// correct and practically a retry loop over punctuation.
+    /// </para>
+    /// <para>
+    /// Deliberately narrow. Only an unbroken run of letters, digits and
+    /// underscores qualifies, so prose never accidentally becomes a JSON
+    /// string, and anything already JSON-shaped — a brace, a bracket, a quote,
+    /// a digit-led number, <c>true</c>/<c>false</c>/<c>null</c> — is left
+    /// exactly as it arrived.
+    /// </para>
+    /// </remarks>
+    private static string Quoted(string text)
+    {
+        if (text.Length == 0) return text;
+
+        if (!char.IsLetter(text[0]) && text[0] != '_') return text;
+
+        foreach (var character in text)
+        {
+            if (!char.IsLetterOrDigit(character) && character != '_') return text;
+        }
+
+        return text is "true" or "false" or "null" ? text : $"\"{text}\"";
+    }
+
+    /// <summary>
     /// Checks DataAnnotations on a bound reply.
     /// </summary>
     /// <remarks>
@@ -378,7 +424,15 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     {
         var results = new List<ValidationResult>();
 
-        if (Validator.TryValidateObject(value!, new ValidationContext(value!), results, validateAllProperties: true))
+        // Boxed once, deliberately. A value type boxes afresh at each use, and
+        // TryValidateObject compares the instance it is given against the one
+        // inside the context by reference — so passing `value!` twice throws
+        // "the instance provided must match the ObjectInstance", from inside
+        // validation, for every struct and enum return. Nothing caught it while
+        // enums could not bind at all.
+        object instance = value!;
+
+        if (Validator.TryValidateObject(instance, new ValidationContext(instance), results, validateAllProperties: true))
         {
             return;
         }
