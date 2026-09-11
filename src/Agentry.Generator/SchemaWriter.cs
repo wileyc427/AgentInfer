@@ -97,6 +97,126 @@ internal static class SchemaWriter
     public static string? TryWriteReturn(ITypeSymbol type) =>
         Describe(type, new HashSet<string>(StringComparer.Ordinal), depth: 0);
 
+
+    /// <summary>
+    /// The bounds one property declares, whichever attribute family declared
+    /// them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Read once and used twice — by <see cref="WithConstraints"/> to build the
+    /// schema and by <see cref="ChecksFor"/> to build the check. That is the
+    /// point: two readers would be two chances to disagree about what
+    /// <c>[Bounded(1, 5)]</c> means, and the disagreement would present as a
+    /// model told one thing and held to another.
+    /// </para>
+    /// <para>
+    /// Agentry's attributes and DataAnnotations are both read. Declaring both
+    /// on one property is AGT015 rather than a precedence rule, because a
+    /// silent winner between two attributes that each look authoritative is
+    /// how one of them ends up stale.
+    /// </para>
+    /// </remarks>
+    internal readonly struct Bounds
+    {
+        public string? Minimum { get; init; }
+
+        public string? Maximum { get; init; }
+
+        public string? MinSize { get; init; }
+
+        public string? MaxSize { get; init; }
+
+        public bool Any => Minimum is not null || Maximum is not null
+                        || MinSize is not null || MaxSize is not null;
+    }
+
+    /// <summary>
+    /// Every property in this return type bounded by both families, by name.
+    /// </summary>
+    public static IEnumerable<string> DoublyConstrained(ITypeSymbol type)
+    {
+        if (Unwrap(type) is not INamedTypeSymbol named) yield break;
+
+        foreach (var member in named.GetMembers().OfType<IPropertySymbol>())
+        {
+            if (member.DeclaredAccessibility != Accessibility.Public || member.IsStatic) continue;
+
+            if (IsDoublyConstrained(member)) yield return named.Name + "." + member.Name;
+        }
+    }
+
+    /// <summary>Whether a property declares bounds from both families.</summary>
+    private static bool IsDoublyConstrained(IPropertySymbol property)
+    {
+        var agentry = false;
+        var annotations = false;
+
+        foreach (var attribute in property.GetAttributes())
+        {
+            switch (attribute.AttributeClass?.ToDisplayString())
+            {
+                case "Agentry.BoundedAttribute":
+                case "Agentry.SizedAttribute":
+                    agentry = true;
+                    break;
+
+                case "System.ComponentModel.DataAnnotations.RangeAttribute":
+                case "System.ComponentModel.DataAnnotations.MinLengthAttribute":
+                case "System.ComponentModel.DataAnnotations.MaxLengthAttribute":
+                    annotations = true;
+                    break;
+            }
+        }
+
+        return agentry && annotations;
+    }
+
+    internal static Bounds BoundsOf(IPropertySymbol property)
+    {
+        string? min = null, max = null, minSize = null, maxSize = null;
+
+        foreach (var attribute in property.GetAttributes())
+        {
+            var name = attribute.AttributeClass?.ToDisplayString();
+            var arguments = attribute.ConstructorArguments;
+
+            switch (name)
+            {
+                case "Agentry.BoundedAttribute" when arguments.Length >= 2:
+                case "System.ComponentModel.DataAnnotations.RangeAttribute" when arguments.Length >= 2:
+                    if (arguments[0].Value is { } low) min = Invariant(low);
+                    if (arguments[1].Value is { } high) max = Invariant(high);
+                    break;
+
+                case "Agentry.SizedAttribute":
+                    foreach (var named in attribute.NamedArguments)
+                    {
+                        if (named.Key == "Min" && named.Value.Value is int lower && lower > 0)
+                        {
+                            minSize = Invariant(lower);
+                        }
+                        else if (named.Key == "Max" && named.Value.Value is int upper && upper != int.MaxValue)
+                        {
+                            maxSize = Invariant(upper);
+                        }
+                    }
+
+                    break;
+
+                case "System.ComponentModel.DataAnnotations.MinLengthAttribute" when arguments.Length >= 1:
+                    if (arguments[0].Value is { } atLeast) minSize = Invariant(atLeast);
+                    break;
+
+                case "System.ComponentModel.DataAnnotations.MaxLengthAttribute" when arguments.Length >= 1:
+                    if (arguments[0].Value is { } atMost) maxSize = Invariant(atMost);
+                    break;
+            }
+        }
+
+        return new Bounds { Minimum = min, Maximum = max, MinSize = minSize, MaxSize = maxSize };
+    }
+
     /// <summary>
     /// The value checks a return type declares, as lines of C#.
     /// </summary>
@@ -166,47 +286,40 @@ internal static class SchemaWriter
         }
     }
 
-    /// <summary>The DataAnnotations on one property, as lines of C#.</summary>
+    /// <summary>The bounds on one property, as lines of C#.</summary>
+    /// <remarks>
+    /// <c>.Length</c> for a string or an array, <c>.Count</c> for anything else
+    /// that counts — the same split <see cref="LengthKeyword"/> makes when it
+    /// chooses between <c>maxLength</c> and <c>maxItems</c>, so the schema and
+    /// the check agree on what is being measured.
+    /// </remarks>
     private static IEnumerable<string> ChecksFor(IPropertySymbol member, string path)
     {
-        // `.Length` for a string or an array, `.Count` for anything else that
-        // counts — the same split LengthKeyword makes when it chooses between
-        // maxLength and maxItems, so the schema and the check agree on what is
-        // being measured.
-        var size = member.Type.SpecialType == SpecialType.System_String || member.Type is IArrayTypeSymbol
-            ? ".Length"
-            : ".Count";
+        var bounds = BoundsOf(member);
+        if (!bounds.Any) yield break;
 
-        var noun = member.Type.SpecialType == SpecialType.System_String ? "characters" : "items";
+        var isText = member.Type.SpecialType == SpecialType.System_String;
+        var size = isText || member.Type is IArrayTypeSymbol ? ".Length" : ".Count";
+        var noun = isText ? "characters" : "items";
+        var name = Camel(member.Name);
 
-        foreach (var attribute in member.GetAttributes())
+        if (bounds.Minimum is { } min && bounds.Maximum is { } max)
         {
-            var name = attribute.AttributeClass?.ToDisplayString();
-            var arguments = attribute.ConstructorArguments;
+            yield return "if (" + path + " is < " + min + " or > " + max + ") "
+                + "return $\"" + name + " must be between " + min + " and " + max
+                + ", not {" + path + "}\";";
+        }
 
-            if (name == "System.ComponentModel.DataAnnotations.RangeAttribute" && arguments.Length >= 2)
-            {
-                var min = Invariant(arguments[0].Value!);
-                var max = Invariant(arguments[1].Value!);
+        if (bounds.MinSize is { } least)
+        {
+            yield return "if (" + path + size + " < " + least + ") "
+                + "return \"" + name + " must have at least " + least + " " + noun + "\";";
+        }
 
-                yield return "if (" + path + " is < " + min + " or > " + max + ") "
-                    + "return $\"" + Camel(member.Name) + " must be between " + min + " and " + max
-                    + ", not {" + path + "}\";";
-            }
-            else if (name == "System.ComponentModel.DataAnnotations.MinLengthAttribute" && arguments.Length >= 1)
-            {
-                var min = Invariant(arguments[0].Value!);
-
-                yield return "if (" + path + size + " < " + min + ") "
-                    + "return \"" + Camel(member.Name) + " must have at least " + min + " " + noun + "\";";
-            }
-            else if (name == "System.ComponentModel.DataAnnotations.MaxLengthAttribute" && arguments.Length >= 1)
-            {
-                var max = Invariant(arguments[0].Value!);
-
-                yield return "if (" + path + size + " > " + max + ") "
-                    + "return \"" + Camel(member.Name) + " must have at most " + max + " " + noun + "\";";
-            }
+        if (bounds.MaxSize is { } most)
+        {
+            yield return "if (" + path + size + " > " + most + ") "
+                + "return \"" + name + " must have at most " + most + " " + noun + "\";";
         }
     }
 
@@ -361,31 +474,15 @@ internal static class SchemaWriter
     /// </remarks>
     private static string WithConstraints(string schema, IPropertySymbol property)
     {
+        var bounds = BoundsOf(property);
+        if (!bounds.Any) return schema;
+
         var extra = new StringBuilder();
 
-        foreach (var attribute in property.GetAttributes())
-        {
-            var name = attribute.AttributeClass?.ToDisplayString();
-
-            switch (name)
-            {
-                case "System.ComponentModel.DataAnnotations.RangeAttribute"
-                    when attribute.ConstructorArguments.Length >= 2:
-                    Append(extra, "minimum", attribute.ConstructorArguments[0].Value);
-                    Append(extra, "maximum", attribute.ConstructorArguments[1].Value);
-                    break;
-
-                case "System.ComponentModel.DataAnnotations.MinLengthAttribute"
-                    when attribute.ConstructorArguments.Length >= 1:
-                    Append(extra, LengthKeyword(property, "min"), attribute.ConstructorArguments[0].Value);
-                    break;
-
-                case "System.ComponentModel.DataAnnotations.MaxLengthAttribute"
-                    when attribute.ConstructorArguments.Length >= 1:
-                    Append(extra, LengthKeyword(property, "max"), attribute.ConstructorArguments[0].Value);
-                    break;
-            }
-        }
+        Append(extra, "minimum", bounds.Minimum);
+        Append(extra, "maximum", bounds.Maximum);
+        Append(extra, LengthKeyword(property, "min"), bounds.MinSize);
+        Append(extra, LengthKeyword(property, "max"), bounds.MaxSize);
 
         if (extra.Length == 0) return schema;
 
@@ -394,10 +491,10 @@ internal static class SchemaWriter
         return schema.Substring(0, schema.Length - 1) + extra + "}";
     }
 
-    private static void Append(StringBuilder target, string keyword, object? value)
+    private static void Append(StringBuilder target, string keyword, string? value)
     {
         if (value is null) return;
-        target.Append(",\"").Append(keyword).Append("\":").Append(Invariant(value));
+        target.Append(",\"").Append(keyword).Append("\":").Append(value);
     }
 
     /// <summary>`minLength` for a string, `minItems` for a collection.</summary>

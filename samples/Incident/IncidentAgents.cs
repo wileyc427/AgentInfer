@@ -1,5 +1,3 @@
-using System.ComponentModel.DataAnnotations;
-
 using Agentry;
 
 namespace Incident;
@@ -43,16 +41,25 @@ public enum Team
 }
 
 /// <summary>What one service's telemetry turned out to show.</summary>
+/// <remarks>
+/// Agentry's own bounds rather than DataAnnotations, and the reason is
+/// specific: <c>MaxLengthAttribute</c>'s constructor carries
+/// <c>[RequiresUnreferencedCode]</c>, because <c>ValidationAttribute.IsValid</c>
+/// inspects arbitrary types. Writing one makes the assembly that holds this
+/// record unverifiable under trimming even when nothing reflects over it.
+/// <c>[Range]</c> and <c>[MaxLength]</c> are still read and still work — they
+/// are the right choice when the assembly is not a trimming target.
+/// </remarks>
 public sealed record Finding(
     string Service,
     bool Healthy,
-    [property: Range(0, 100)] int Confidence,
-    [property: MaxLength(400)] string Evidence);
+    [property: Bounded(0, 100)] int Confidence,
+    [property: Sized(Max = 400)] string Evidence);
 
 /// <summary>The critic's verdict on a draft. A contract, not prose.</summary>
 public sealed record Review(
     bool Approved,
-    [property: Range(1, 5)] int Score,
+    [property: Bounded(1, 5)] int Score,
     string[] Problems);
 
 /// <summary>

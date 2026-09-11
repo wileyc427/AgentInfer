@@ -326,6 +326,20 @@ public sealed class AgentGenerator : IIncrementalGenerator
         var implementationName = ImplementationNameFor(type, ctx);
 
         // A model is still produced alongside errors so the IDE keeps offering
+        // A property bounded twice would put two values under one schema
+        // keyword, which is not a precedence question.
+        foreach (var method in methods)
+        {
+            if (method.Shape != ReturnShape.Json) continue;
+
+            foreach (var conflicted in SchemaWriter.DoublyConstrained(ReturnTypeOf(
+                         type.GetMembers().OfType<IMethodSymbol>().First(m => m.Name == method.Name))))
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    Diagnostics.ConflictingBounds, Location(type), conflicted));
+            }
+        }
+
         // The declared JSON context, checked before anything is emitted against
         // it. Both failures below would otherwise surface inside a generated
         // file the user cannot open.
