@@ -57,7 +57,9 @@ public interface IIntake
 ///   <c>[Model]</c> attributes, and there are none here, so the roles are
 ///   declared in <see cref="IntakeRoles"/> and startup validation checks what
 ///   somebody remembered to put there.</item>
-///   <item>The AOT suppressions are written out rather than emitted.</item>
+///   <item>The trimming annotations are written out rather than emitted — and
+///   propagated rather than suppressed, which the generated path does not yet
+///   do.</item>
 ///   <item>No AGT001–AGT004: nothing checks that a prompt is non-empty or that
 ///   the return type is one the runtime can bind. Most of those rules police
 ///   hazards the attributes introduce, but not all.</item>
@@ -212,18 +214,24 @@ public sealed class IntakeAgent : IIntake
         }
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026",
-        Justification = "Binds the reply reflectively, as the generated path does. Replaced by a JsonSerializerContext.")]
-    [UnconditionalSuppressMessage("AOT", "IL3050",
-        Justification = "Binds the reply reflectively, as the generated path does. Replaced by a JsonSerializerContext.")]
+    /// <summary>The typed call, kept in one place so the repair can reuse it.</summary>
+    /// <remarks>
+    /// Carries the runtime's own annotations rather than suppressing them.
+    /// <c>CompleteJsonWithToolsAsync</c> is marked <c>[RequiresUnreferencedCode]</c>
+    /// because it really does bind reflectively, and a method that calls it is
+    /// in the same position — so it says so, and the warning travels to whoever
+    /// publishes trimmed. An <c>UnconditionalSuppressMessage</c> here would
+    /// assert the opposite: "analysed, and safe". It is not safe, and the
+    /// suppression would stop the one signal that says so.
+    /// </remarks>
+    [RequiresUnreferencedCode("Binds the reply with reflection-based JSON.")]
+    [RequiresDynamicCode("Binds the reply with reflection-based JSON.")]
     private Task<Extract> Extract(AgentCall call, CancellationToken ct) =>
         _router.For(IntakeRoles.Accurate)
             .CompleteJsonWithToolsAsync<Extract>(call, _tools, _authorizer, 12, null, ct);
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026",
-        Justification = "Binds the reply reflectively, as the generated path does. Replaced by a JsonSerializerContext.")]
-    [UnconditionalSuppressMessage("AOT", "IL3050",
-        Justification = "Binds the reply reflectively, as the generated path does. Replaced by a JsonSerializerContext.")]
+    [RequiresUnreferencedCode("Binds the reply with reflection-based JSON.")]
+    [RequiresDynamicCode("Binds the reply with reflection-based JSON.")]
     private Task<T> Bind<T>(string role, AgentCall call, CancellationToken ct) =>
         _router.For(role).CompleteJsonAsync<T>(call, null, ct);
 }
