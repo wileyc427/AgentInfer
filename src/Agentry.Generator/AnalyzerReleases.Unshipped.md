@@ -23,3 +23,4 @@ AGT011  | Agentry  | Error    | [Flags] enum has no JSON schema
 AGT012  | Agentry  | Warning  | [AgentTools] type has no [AgentTool] methods
 AGT013  | Agentry  | Error    | [AgentryJson] target is not a JsonSerializerContext
 AGT014  | Agentry  | Error    | Return type is not declared in the JSON context
+AGT015  | Agentry  | Error    | Property carries bounds from both attribute families

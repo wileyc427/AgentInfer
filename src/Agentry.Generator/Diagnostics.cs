@@ -204,4 +204,17 @@ internal static class Diagnostics
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    /// <summary>
+    /// One property bounded by both attribute families. A silent winner between
+    /// two attributes that each look authoritative is how one of them ends up
+    /// stale — the same reading AGT009 gives a prompt named twice.
+    /// </summary>
+    public static readonly DiagnosticDescriptor ConflictingBounds = new(
+        id: "AGT015",
+        title: "Property is bounded twice",
+        messageFormat: "'{0}' carries both an Agentry bound and a DataAnnotations one. Keep one: [Bounded]/[Sized] are trimmable, [Range]/[MaxLength] are what a .NET developer reaches for.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }
