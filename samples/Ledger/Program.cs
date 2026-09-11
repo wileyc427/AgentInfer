@@ -36,7 +36,7 @@ var accurate = Environment.GetEnvironmentVariable("AGENTRY_ACCURATE_MODEL") is {
     ? new AgentRunner(Model.For(better), logs.CreateLogger<AgentRunner>())
     : runner;
 
-var router = new ModelRouter([new KeyValuePair<string, AgentRunner>("accurate", accurate)]);
+var router = new ModelRouter([new KeyValuePair<string, AgentRunner>(ModelRoles.Accurate, accurate)]);
 
 // Generated. In a real host all four come from DI.
 ILedgerAnalyst analyst = new LedgerAnalystAgent(runner, invoker, caller, router);

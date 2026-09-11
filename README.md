@@ -202,14 +202,68 @@ people.
 
 The router is a constructor dependency **only when some method asks for a
 role**, so the common case stays one dependency and a router in a constructor is
-a signal rather than boilerplate. Configure it with a dictionary, or over keyed
-DI:
+a signal rather than boilerplate.
+
+### Where a role becomes a model name
+
+Two hops, and the library owns only one. A role resolves to an `AgentRunner`;
+the runner already knows its model, because the `IChatClient` was built with it.
+There is no `"accurate"` → `"claude-sonnet-5"` table inside Agentry — that
+string is deployment configuration.
+
+```json
+{ "Agentry": { "Models": { "accurate": "claude-sonnet-5", "cheap": "qwen3:8b" } } }
+```
 
 ```csharp
-services.AddKeyedSingleton<AgentRunner>("accurate", …);
-services.AddSingleton<IModelRouter>(sp =>
-    new DelegateModelRouter(role => sp.GetRequiredKeyedService<AgentRunner>(role)));
+services.AddAgentryModels(configuration, (model, sp) => ClientFor(model))
+        .ValidateRoles(AgentryRoles.All);
 ```
+
+`AddAgentryModels` registers one keyed `AgentRunner` per configured role plus an
+`IModelRouter` over them. Clients are built **lazily and once**, so registering
+ten models opens no connections.
+
+It does not build clients itself. Constructing an `IChatClient` is
+provider-specific — endpoint, credential, SDK — and a library that guessed would
+be wrong for everyone but its author.
+
+### Role names without magic strings
+
+Define your own constants and use them in the attribute:
+
+```csharp
+public static class ModelRoles
+{
+    public const string Accurate = "accurate";
+}
+
+[Model(ModelRoles.Accurate)]
+public Task<string> SummariseAsync(CancellationToken ct = default);
+```
+
+`const`, because an attribute argument must be a compile-time constant. A rename
+is then a rename.
+
+**These are yours to define, not generated** — and that is a constraint rather
+than an omission. The generator learns a role *by reading the attribute*, so a
+constant it emitted could not be used in the attribute that produced it. The
+dependency only runs one way.
+
+What *is* generated is `AgentryRoles.All`, the set of roles actually asked for:
+
+```csharp
+internal static class AgentryRoles
+{
+    public static readonly string[] All = ["accurate"];
+}
+```
+
+Your constants make a rename a rename. That array makes a missing registration a
+**startup failure** rather than a request that dies halfway through, minutes
+after deploy, reading as a missing service. A configured role nothing asks for
+is a warning instead — dead configuration is worth noticing and not worth
+refusing to start over.
 
 Why it exists: given the same correct one-call tool result, `qwen3:latest`
 summarised correctly once and answered *"no categories are over budget"* the

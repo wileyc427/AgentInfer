@@ -53,6 +53,28 @@ public sealed class AgentGenerator : IIncrementalGenerator
                 transform: static (ctx, ct) => Transform(ctx, ct))
             .Where(static result => result is not null);
 
+        // Every role any agent declared, as one constant, for startup validation.
+        //
+        // Collect() breaks incrementality for this output — any change re-emits
+        // it — which is acceptable for a file of one array and is the only way
+        // to see the whole compilation at once.
+        context.RegisterSourceOutput(
+            agents.Collect(),
+            static (spc, results) =>
+            {
+                var roles = results
+                    .Where(r => r?.Model is not null)
+                    .SelectMany(r => r!.Model!.Methods)
+                    .Select(m => m.ModelRole)
+                    .Where(role => !string.IsNullOrWhiteSpace(role))
+                    .Select(role => role!)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(role => role, StringComparer.Ordinal)
+                    .ToArray();
+
+                spc.AddSource("AgentryRoles.g.cs", Emit.RolesEmitter.Emit(roles));
+            });
+
         context.RegisterSourceOutput(agents, static (spc, result) =>
         {
             foreach (var diagnostic in result!.Diagnostics)
