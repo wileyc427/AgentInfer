@@ -45,14 +45,14 @@ internal sealed record MethodModel(
     string Name,
 
     /// <summary>
-    /// <c>ILedgerAnalyst.SummariseAsync</c> — what logs, spans and metrics are
+    /// <c>ILedgerAnalyst.SummarizeAsync</c> — what logs, spans and metrics are
     /// tagged with.
     /// </summary>
     /// <remarks>
     /// Qualified by the interface, and the bare method name was a real defect
     /// rather than a cosmetic one. <c>operation</c> is the tag on
     /// <c>calls_per_turn</c>, <c>tools.offered</c> and the workflow histograms,
-    /// so two agents that both have a <c>SummariseAsync</c> — which is most of
+    /// so two agents that both have a <c>SummarizeAsync</c> — which is most of
     /// them — collapsed into one series. The instrumentation this repo calls
     /// the product was measuring the wrong thing.
     /// </remarks>

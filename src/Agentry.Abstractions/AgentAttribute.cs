@@ -73,7 +73,7 @@ public sealed class AgentAttribute : Attribute
     /// <para>
     /// Setting this and a prompt together is AGT009. Two sources for one string
     /// means one of them is stale, and guessing which would be the kind of
-    /// silent almost-right behaviour this library exists to remove.
+    /// silent almost-right behavior this library exists to remove.
     /// </para>
     /// </remarks>
     public string? PromptFile { get; set; }

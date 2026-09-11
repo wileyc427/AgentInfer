@@ -7,7 +7,7 @@ namespace Agentry;
 /// and that default is the most important decision in this library.
 /// </para>
 /// <para>
-/// The framework this is modelled on defaults to executing model-written code,
+/// The framework this is modeled on defaults to executing model-written code,
 /// which meant three methods in a project built against it were running
 /// generated Python that nobody had reviewed — discovered by accident, after
 /// its own documentation had claimed otherwise. Opting into code execution has

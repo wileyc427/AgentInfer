@@ -464,7 +464,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     /// Whether a reply is the model narrating tool calls rather than answering.
     /// </summary>
     /// <remarks>
-    /// A specific, recognisable failure deserves a specific message. Without
+    /// A specific, recognizable failure deserves a specific message. Without
     /// this the error is "could not bind", which sends you looking at your
     /// record type instead of at the request that confused the model.
     /// </remarks>

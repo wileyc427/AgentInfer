@@ -162,8 +162,8 @@ public sealed class StandaloneToolsTests
             [Agent("You are terse.", Tools = typeof(IntakeTools))]
             public interface IIntake
             {
-                [Prompt("Summarise.")]
-                public Task<string> SummariseAsync();
+                [Prompt("Summarize.")]
+                public Task<string> SummarizeAsync();
             }
             """);
 
