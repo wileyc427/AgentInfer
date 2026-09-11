@@ -85,7 +85,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     {
         try
         {
-            var value = JsonSerializer.Deserialize<T>(Unfence(text), options ?? JsonSerializerOptions.Web);
+            var value = JsonSerializer.Deserialize<T>(Unfence(text), options ?? AgentJson.Binding);
             return value ?? throw new AgentException(call.Operation, "the model returned JSON null");
         }
         catch (JsonException error)
@@ -98,9 +98,12 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
                   + "Smaller models resolve that by writing the calls out as text."
                 : string.Empty;
 
+            // The JsonException already says which property was missing or
+            // null — the single most useful sentence available — and dropping
+            // it left "could not bind", which sends you to the wrong place.
             throw new AgentException(
                 call.Operation,
-                $"could not bind the reply to {typeof(T).Name}.{hint} Reply was: {Trim(text)}",
+                $"could not bind the reply to {typeof(T).Name}. {error.Message}{hint} Reply was: {Trim(text)}",
                 error);
         }
     }

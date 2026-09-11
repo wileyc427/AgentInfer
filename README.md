@@ -230,6 +230,22 @@ That is the strongest argument for the instrumentation. The log says
 eight is immediately legible. Without it the only symptom is prose that reads
 fine.
 
+**A typed return was not actually a contract.** A model replied
+`{"approved":false,"score":0}` to a method returning
+`Verdict(bool Approved, int Score, string[] Problems)`. Deserialization produced
+a record with **null** in the non-nullable `Problems` slot, and the caller's
+`foreach` threw a `NullReferenceException` several lines from the cause.
+
+`Task<Verdict>` has to mean a `Verdict`, so binding now sets
+`RespectNullableAnnotations` and `RespectRequiredConstructorParameters`. The
+same reply fails at the boundary with a message naming the missing property and
+quoting what the model said.
+
+This covers **shape, not semantics**: that reply also scored 0 out of an
+intended 1–5 and nothing objected, because no range was declared. Value
+constraints need DataAnnotations run after binding — worth doing, and a separate
+decision from making the type itself honest.
+
 ### The cheaper fix, before reaching for generated code
 
 `Categories` / `TotalFor` / `BudgetFor` is a chatty API: 1 + 2N calls to answer
@@ -241,6 +257,17 @@ designed for a UI, where a caller knows which single row it wants." A model
 asking an open question wants the whole table. Design tools for a caller
 reasoning about all of it at once and the round trips that motivated generated
 code stop existing.
+
+Measured on `qwen3:latest`, same question, same agent:
+
+| Tools offered | Calls | Result |
+| --- | --- | --- |
+| per-category only | 9 | cut off at the bound; confidently wrong |
+| with `Overview` | **1** | "Coffee is over budget by $7.80." — correct |
+
+One call, right answer. That is the case for generated code evaporating on
+contact with a better tool API, and it is why the counting came before the
+decision.
 
 ### One thing the counting revealed
 
