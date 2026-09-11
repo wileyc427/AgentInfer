@@ -37,7 +37,7 @@ public sealed class EnumBindingTests
     public async Task An_enum_reply_binds(string reply)
     {
         var runner = new AgentRunner(new FakeChatClient(reply));
-        Assert.Equal(Urgency.NeedsAttention, await runner.CompleteJsonAsync<Urgency>(Call(), ct: Ct));
+        Assert.Equal(Urgency.NeedsAttention, await runner.CompleteJsonReflectivelyAsync<Urgency>(Call(), ct: Ct));
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public sealed class EnumBindingTests
         var runner = new AgentRunner(new FakeChatClient("\"urgent\""));
 
         var error = await Assert.ThrowsAsync<AgentException>(
-            () => runner.CompleteJsonAsync<Urgency>(Call(), ct: Ct));
+            () => runner.CompleteJsonReflectivelyAsync<Urgency>(Call(), ct: Ct));
 
         // The reply is in the message, because that is the thing worth seeing.
         Assert.Contains("urgent", error.Message);
@@ -60,7 +60,7 @@ public sealed class EnumBindingTests
         // Quoted() is narrow on purpose: a sentence is not a bare token, so it
         // stays invalid JSON and fails rather than binding to something.
         await Assert.ThrowsAsync<AgentException>(
-            () => runner.CompleteJsonAsync<Urgency>(Call(), ct: Ct));
+            () => runner.CompleteJsonReflectivelyAsync<Urgency>(Call(), ct: Ct));
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public sealed class EnumBindingTests
         var client = new FakeChatClient("\"low\"");
         var schema = "{\"type\":\"string\",\"enum\":[\"low\",\"normal\",\"needsAttention\"]}";
 
-        await new AgentRunner(client).CompleteJsonAsync<Urgency>(Call(schema), ct: Ct);
+        await new AgentRunner(client).CompleteJsonReflectivelyAsync<Urgency>(Call(schema), ct: Ct);
 
         // Structured output wants an object at the root and rejects this one,
         // so sending it turns a call that would have worked into a 400.
@@ -85,7 +85,7 @@ public sealed class EnumBindingTests
         var client = new FakeChatClient("{\"urgency\":\"low\",\"reason\":\"routine\"}");
         var schema = "{\"type\":\"object\",\"properties\":{\"urgency\":{\"type\":\"string\"}}}";
 
-        await new AgentRunner(client).CompleteJsonAsync<Triage>(Call(schema), ct: Ct);
+        await new AgentRunner(client).CompleteJsonReflectivelyAsync<Triage>(Call(schema), ct: Ct);
 
         Assert.NotNull(client.LastOptions?.ResponseFormat);
     }
@@ -95,7 +95,7 @@ public sealed class EnumBindingTests
     {
         var runner = new AgentRunner(new FakeChatClient("{\"urgency\":\"needsAttention\",\"reason\":\"disk full\"}"));
 
-        var triage = await runner.CompleteJsonAsync<Triage>(Call(), ct: Ct);
+        var triage = await runner.CompleteJsonReflectivelyAsync<Triage>(Call(), ct: Ct);
 
         Assert.Equal(Urgency.NeedsAttention, triage.Urgency);
         Assert.Equal("disk full", triage.Reason);

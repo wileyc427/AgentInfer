@@ -39,7 +39,19 @@ internal sealed record AgentModel(
     string PromptFile,
     EquatableArray<MethodModel> Methods,
     EquatableArray<ToolModel> Tools,
-    string ToolsType);
+    string ToolsType,
+
+    /// <summary>
+    /// The assembly's <c>JsonSerializerContext</c>, or empty.
+    /// </summary>
+    /// <remarks>
+    /// Named by <c>[assembly: AgentryJson(typeof(...))]</c> rather than emitted
+    /// here, because generators do not chain — a context this generator wrote
+    /// would be invisible to System.Text.Json's generator and compile to an
+    /// abstract class with no metadata. Their outputs can reference each other;
+    /// only their inputs cannot.
+    /// </remarks>
+    string JsonContext);
 
 internal sealed record MethodModel(
     string Name,
@@ -65,6 +77,17 @@ internal sealed record MethodModel(
     string? CancellationTokenParameter,
     int MaxIterations,
     string ReturnSchema,
+
+    /// <summary>
+    /// Lines of C# checking the return type's declared bounds.
+    /// </summary>
+    /// <remarks>
+    /// Built from the same attributes as <see cref="ReturnSchema"/>, in the
+    /// same pass, so the bound the model is told and the bound it is held to
+    /// are one fact rather than two that can drift.
+    /// </remarks>
+    EquatableArray<string> ReturnChecks,
+
     string? ModelRole) : IEquatable<MethodModel>;
 
 internal sealed record ParameterModel(string Name, string Type, bool IsString) : IEquatable<ParameterModel>;

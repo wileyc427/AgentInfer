@@ -56,17 +56,17 @@ public sealed class EmitTests
         var (output, _) = GeneratorHarness.Run(Source);
 
         Assert.Contains("CompleteTextAsync", output);
-        // The regression: Task<string> once went through CompleteJsonAsync<string>,
+        // The regression: Task<string> once went through CompleteJsonReflectivelyAsync<string>,
         // because FullyQualifiedFormat renders string as `string` and the check
         // compared display strings instead of SpecialType.
-        Assert.DoesNotContain("CompleteJsonAsync<string>", output);
+        Assert.DoesNotContain("CompleteJsonReflectivelyAsync<string>", output);
     }
 
     [Fact]
     public void A_typed_return_takes_the_json_path_fully_qualified()
     {
         var (output, _) = GeneratorHarness.Run(Source);
-        Assert.Contains("CompleteJsonAsync<global::Demo.Verdict>", output);
+        Assert.Contains("CompleteJsonReflectivelyAsync<global::Demo.Verdict>", output);
     }
 
     [Fact]
