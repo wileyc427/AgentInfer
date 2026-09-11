@@ -136,6 +136,72 @@ public sealed class ToolLoopTests
         Assert.Empty(client.LastOptions!.Tools!);
     }
 
+    /// <summary>Answers tool calls as prose, the way qwen3 actually did.</summary>
+    private sealed class NarratingClient : IChatClient
+    {
+        public List<ChatOptions?> Options { get; } = [];
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)
+        {
+            Options.Add(options);
+
+            // With tools: answer in prose. Without: answer with the object.
+            var text = options?.Tools is { Count: > 0 }
+                ? "Coffee is over budget by 7.80."
+                : """{"approved":true}""";
+
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, text)));
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
+    }
+
+    private sealed record Verdict(bool Approved);
+
+    [Fact]
+    public async Task Tools_and_json_output_are_never_asked_for_in_the_same_request()
+    {
+        var client = new NarratingClient();
+
+        var verdict = await new AgentRunner(client).CompleteJsonWithToolsAsync<Verdict>(
+            Call(), new Ledger(), GrantAllTools.Instance, ct: Ct);
+
+        // Two requests: the tool loop, then the binding call.
+        Assert.Equal(2, client.Options.Count);
+        Assert.NotEmpty(client.Options[0]!.Tools!);
+        // The binding call carries no tools, so there is no contradiction to
+        // resolve. A real qwen3 run resolved it by writing its tool calls out
+        // as JSON text, which the loop never saw and the binder then failed on.
+        Assert.Null(client.Options[1]?.Tools);
+        Assert.True(verdict.Approved);
+    }
+
+    [Fact]
+    public async Task A_reply_full_of_tool_call_json_says_so_rather_than_just_failing()
+    {
+        var narrated = """
+            {"name": "Categories", "arguments": {}}
+            {"name": "TotalFor", "arguments": {"category": "books"}}
+            """;
+
+        var runner = new AgentRunner(new FakeChatClient(narrated));
+
+        var error = await Assert.ThrowsAsync<AgentException>(
+            () => runner.CompleteJsonAsync<Verdict>(Call(), ct: Ct));
+
+        // "Could not bind" alone sends you looking at your record type instead
+        // of at the request that confused the model.
+        Assert.Contains("tool-call JSON", error.Message);
+        Assert.Contains("tools and for JSON output at once", error.Message);
+    }
+
     [Fact]
     public async Task The_iteration_bound_is_refused_rather_than_silently_raised()
     {

@@ -197,6 +197,51 @@ fewer round trips — at the cost of executing that code. Obviously worth it at
 fifteen calls a turn; obviously not at two. **Count first, decide after.** The
 p95 of `calls_per_turn` on a real workload is the whole argument.
 
+### What a real model changed
+
+Two findings from pointing it at `qwen3` rather than at a stub. Neither showed
+up in 50 passing tests.
+
+**Tools and JSON output cannot be asked for in the same request.** The JSON path
+appended *"Reply with JSON only. No prose, no markdown fence."* while also
+offering tools. qwen3 resolved the contradiction by writing its tool calls into
+the message body as text:
+
+```
+{"name": "Categories", "arguments": {}}
+{"name": "TotalFor", "arguments": {"category": "books"}}
+```
+
+The loop never saw those as tool calls, and the binder then failed on them. The
+model was not malfunctioning — it was told to reply with JSON and did.
+
+A typed method with tools now runs in **two phases**: the loop with no JSON
+instruction, then a binding call with no tools. One extra round trip, and the
+failure mode stops existing rather than being tuned around. When binding does
+fail on text that looks like tool calls, the error says so.
+
+**A wrong iteration bound produces a confident wrong answer, not an error.**
+`MaxIterations` was 8; answering through the per-category tools needs nine calls.
+The model was cut off and wrote a summary from what it had — *"other categories
+lack sufficient data"* — which is a plausible sentence and a false one.
+
+That is the strongest argument for the instrumentation. The log says
+`9 call(s) — TotalFor×4, BudgetFor×4, Categories×1`, and nine against a bound of
+eight is immediately legible. Without it the only symptom is prose that reads
+fine.
+
+### The cheaper fix, before reaching for generated code
+
+`Categories` / `TotalFor` / `BudgetFor` is a chatty API: 1 + 2N calls to answer
+one question. `Overview()` returns every category with its total and budget in
+**one**.
+
+Most "the model needs to loop over tools" problems are really "this tool API was
+designed for a UI, where a caller knows which single row it wants." A model
+asking an open question wants the whole table. Design tools for a caller
+reasoning about all of it at once and the round trips that motivated generated
+code stop existing.
+
 ### One thing the counting revealed
 
 Within a single call, **filtering the menu is what enforces a permission**. A
