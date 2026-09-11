@@ -361,11 +361,24 @@ public sealed class AgentGenerator : IIncrementalGenerator
             var schema = SchemaWriter.TryWrite(method, out var unsupported);
             if (schema is null)
             {
+                // A flags enum reaches here as "no schema", and the generic
+                // message would send the reader to look for a scalar they
+                // already have. Name the actual reason.
+                if (SchemaWriter.FlagsEnumIn(unsupported!.Type) is { } flags)
+                {
+                    diagnostics.Add(Diagnostic.Create(
+                        Diagnostics.UnsupportedFlagsEnum,
+                        Location(unsupported),
+                        Display(method),
+                        flags.ToDisplayString()));
+                    continue;
+                }
+
                 diagnostics.Add(Diagnostic.Create(
                     Diagnostics.UnsupportedToolParameter,
-                    Location(unsupported!),
+                    Location(unsupported),
                     Display(method),
-                    unsupported!.Type.ToDisplayString(),
+                    unsupported.Type.ToDisplayString(),
                     unsupported.Name));
                 continue;
             }
@@ -469,6 +482,21 @@ public sealed class AgentGenerator : IIncrementalGenerator
                 Location(method),
                 Display(method),
                 method.ReturnType.ToDisplayString()));
+            return null;
+        }
+
+        // A return type the schema builder cannot describe is not fatal — the
+        // JSON path still works, it just tells the model less. A flags enum is
+        // the exception, because the reply it invites ("Read, Write") binds to
+        // nothing, and finding that out from a trace is what AGT008 exists to
+        // prevent.
+        if (shape == ReturnShape.Json && SchemaWriter.FlagsEnumIn(ReturnTypeOf(method)) is { } flagsReturn)
+        {
+            diagnostics.Add(Diagnostic.Create(
+                Diagnostics.UnsupportedFlagsEnum,
+                Location(method),
+                Display(method),
+                flagsReturn.ToDisplayString()));
             return null;
         }
 

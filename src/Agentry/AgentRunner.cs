@@ -28,9 +28,18 @@ namespace Agentry;
 /// </remarks>
 public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger = null)
 {
-    private static readonly ActivitySource Source = new("Agentry");
+    private static ActivitySource Source => AgentMetrics.Source;
 
-    private readonly IChatClient _client = client ?? throw new ArgumentNullException(nameof(client));
+    /// <summary>
+    /// The caller's client, wrapped so every request is counted.
+    /// </summary>
+    /// <remarks>
+    /// Wrapped here rather than left to the host's pipeline. See
+    /// <see cref="CountingChatClient"/>: a budget a consumer has to remember to
+    /// register is a budget that reads correctly and does nothing.
+    /// </remarks>
+    private readonly IChatClient _client =
+        new CountingChatClient(client ?? throw new ArgumentNullException(nameof(client)));
     private readonly ILogger _logger = (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
 
     /// <summary>Runs a method whose return type is <see cref="string"/>.</summary>
@@ -86,7 +95,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     {
         try
         {
-            var value = JsonSerializer.Deserialize<T>(Unfence(text), options ?? AgentJson.Binding);
+            var value = JsonSerializer.Deserialize<T>(Quoted(Unfence(text)), options ?? AgentJson.Binding);
             if (value is null) throw new AgentException(call.Operation, "the model returned JSON null");
 
             Validate(call, value, text);
@@ -196,10 +205,17 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         var text = await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, started, ct)
             .ConfigureAwait(false);
 
+        // The arguments come along, and dropping them was a bug. The binding
+        // call is a fresh two-message request: a method taking a service name
+        // and returning a record with a Service field was asked to produce one
+        // from the answer text alone, and a model that could not find the name
+        // in there invented one that read fine. Keeping them costs tokens
+        // proportional to the inputs, which are the small half — the tool
+        // output already in `answer` is the large one.
         var binding = call with
         {
             Operation = call.Operation + " (bind)",
-            Arguments = [new KeyValuePair<string, string>("answer", text)],
+            Arguments = [.. call.Arguments, new KeyValuePair<string, string>("answer", text)],
         };
 
         var reply = await _client.GetResponseAsync(Build(binding, json: true), FormatFor(binding), ct)
@@ -243,7 +259,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         // public method the caller entered through, and threading it down would
         // be plumbing to reach something already ambient.
         Record(call, log);
-        Log(call, started, text.Length);
+        Log(call, started, text.Length, log.Invocations);
         return text;
     }
 
@@ -295,6 +311,18 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         try
         {
             using var document = JsonDocument.Parse(call.ResponseSchema);
+
+            // Only an object root goes to the provider. OpenAI-compatible
+            // structured output requires one and rejects {"type":"string"}
+            // outright, so handing it an enum's schema turns a call that would
+            // have worked into a 400 — the belt breaking the braces. The prompt
+            // still carries the schema, and for a closed set of words that is
+            // the half that was doing the work anyway.
+            if (!document.RootElement.TryGetProperty("type", out var kind) ||
+                kind.GetString() != "object")
+            {
+                return null;
+            }
 
             return new ChatOptions
             {
@@ -357,6 +385,40 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     }
 
     /// <summary>
+    /// Quotes a bare word, so a one-word answer is still JSON.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same class of repair as <see cref="Unfence"/>, and it earns its
+    /// place for the same reason: it is what models actually do. Asked for an
+    /// enum, told the legal values, and told to reply with JSON only, a model
+    /// answers <c>high</c> at least as often as <c>"high"</c> — the word is the
+    /// answer and the quotes look like formatting. Rejecting that is technically
+    /// correct and practically a retry loop over punctuation.
+    /// </para>
+    /// <para>
+    /// Deliberately narrow. Only an unbroken run of letters, digits and
+    /// underscores qualifies, so prose never accidentally becomes a JSON
+    /// string, and anything already JSON-shaped — a brace, a bracket, a quote,
+    /// a digit-led number, <c>true</c>/<c>false</c>/<c>null</c> — is left
+    /// exactly as it arrived.
+    /// </para>
+    /// </remarks>
+    private static string Quoted(string text)
+    {
+        if (text.Length == 0) return text;
+
+        if (!char.IsLetter(text[0]) && text[0] != '_') return text;
+
+        foreach (var character in text)
+        {
+            if (!char.IsLetterOrDigit(character) && character != '_') return text;
+        }
+
+        return text is "true" or "false" or "null" ? text : $"\"{text}\"";
+    }
+
+    /// <summary>
     /// Checks DataAnnotations on a bound reply.
     /// </summary>
     /// <remarks>
@@ -378,7 +440,15 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     {
         var results = new List<ValidationResult>();
 
-        if (Validator.TryValidateObject(value!, new ValidationContext(value!), results, validateAllProperties: true))
+        // Boxed once, deliberately. A value type boxes afresh at each use, and
+        // TryValidateObject compares the instance it is given against the one
+        // inside the context by reference — so passing `value!` twice throws
+        // "the instance provided must match the ObjectInstance", from inside
+        // validation, for every struct and enum return. Nothing caught it while
+        // enums could not bind at all.
+        object instance = value!;
+
+        if (Validator.TryValidateObject(instance, new ValidationContext(instance), results, validateAllProperties: true))
         {
             return;
         }
@@ -405,10 +475,22 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     private static string Trim(string text) =>
         text.Length <= 400 ? text : string.Concat(text.AsSpan(0, 399), "…");
 
-    private void Log(AgentCall call, long started, int length) =>
+    /// <summary>
+    /// One line per generation method call, and one tick on the enclosing scope.
+    /// </summary>
+    /// <remarks>
+    /// Called once per public entry point — including the two-phase typed tool
+    /// path, which is one operation and two requests. That difference is the
+    /// point of counting both.
+    /// </remarks>
+    private void Log(AgentCall call, long started, int length, int toolCalls = 0)
+    {
+        AgentScope.RecordOperation(toolCalls);
+
         _logger.LogInformation(
             "{Operation} completed in {Elapsed:F1}s, {Length} chars",
             call.Operation,
             Stopwatch.GetElapsedTime(started).TotalSeconds,
             length);
+    }
 }

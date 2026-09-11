@@ -27,6 +27,21 @@ namespace Agentry.Generator;
 /// </remarks>
 internal static class SchemaWriter
 {
+    private const string FlagsAttribute = "System.FlagsAttribute";
+
+    /// <summary>
+    /// The attribute that renames one enum member on the wire.
+    /// </summary>
+    /// <remarks>
+    /// Matched by metadata name rather than referenced, because this assembly
+    /// is netstandard2.0 and the attribute is .NET 9. Honouring it is not
+    /// optional: the binder obeys it, so a schema that ignored it would name
+    /// values the binder then rejects — the exact disagreement this file
+    /// exists to prevent.
+    /// </remarks>
+    private const string EnumMemberNameAttribute =
+        "System.Text.Json.Serialization.JsonStringEnumMemberNameAttribute";
+
     /// <summary>The schema, or <c>null</c> when a parameter cannot be described.</summary>
     public static string? TryWrite(IMethodSymbol method, out IParameterSymbol? unsupported)
     {
@@ -40,8 +55,8 @@ internal static class SchemaWriter
         {
             if (parameter.Type.ToDisplayString() == "System.Threading.CancellationToken") continue;
 
-            var type = JsonTypeFor(parameter.Type);
-            if (type is null)
+            var schema = ParameterSchema(parameter.Type);
+            if (schema is null)
             {
                 unsupported = parameter;
                 return null;
@@ -53,7 +68,7 @@ internal static class SchemaWriter
                 required.Append(',');
             }
 
-            properties.Append('"').Append(parameter.Name).Append("\":{\"type\":\"").Append(type).Append("\"}");
+            properties.Append('"').Append(parameter.Name).Append("\":").Append(schema);
             required.Append('"').Append(parameter.Name).Append('"');
             first = false;
         }
@@ -61,16 +76,6 @@ internal static class SchemaWriter
         return $"{{\"type\":\"object\",\"properties\":{{{properties}}},\"required\":[{required}],\"additionalProperties\":false}}";
     }
 
-    /// <summary>
-    /// The JSON type for a parameter, or <c>null</c> when there isn't one.
-    /// </summary>
-    /// <remarks>
-    /// Arrays of a supported scalar are allowed because "give me several" is the
-    /// commonest shape a tool actually needs. Nested objects are not, yet:
-    /// describing them means walking the type graph and deciding what to do
-    /// about cycles, and a half-correct object schema is worse than a build
-    /// error that says to flatten the parameter.
-    /// </remarks>
     /// <summary>
     /// A JSON Schema describing a return type, or <c>null</c> if it has none.
     /// </summary>
@@ -93,6 +98,59 @@ internal static class SchemaWriter
         Describe(type, new HashSet<string>(StringComparer.Ordinal), depth: 0);
 
     /// <summary>
+    /// The first <c>[Flags]</c> enum reachable in this type, or <c>null</c>.
+    /// </summary>
+    /// <remarks>
+    /// A flags enum is a set, and <c>{"enum":[…]}</c> describes a choice of one.
+    /// Emitting the member list would tell the model it may pick exactly one
+    /// value of a type whose whole purpose is combining them, and the reply
+    /// <c>"Read, Write"</c> then fails at the binder with a message about an
+    /// unrecognised value. Naming it at build time is <c>AGT008</c>.
+    /// </remarks>
+    public static INamedTypeSymbol? FlagsEnumIn(ITypeSymbol type) =>
+        FlagsEnumIn(type, new HashSet<string>(StringComparer.Ordinal), depth: 0);
+
+    private static INamedTypeSymbol? FlagsEnumIn(ITypeSymbol type, HashSet<string> seen, int depth)
+    {
+        if (depth > 3) return null;
+
+        type = Unwrap(type);
+
+        if (type.TypeKind == TypeKind.Enum)
+        {
+            return IsFlags(type) ? type as INamedTypeSymbol : null;
+        }
+
+        if (type is IArrayTypeSymbol array) return FlagsEnumIn(array.ElementType, seen, depth + 1);
+        if (ElementOfList(type) is { } element) return FlagsEnumIn(element, seen, depth + 1);
+
+        if (type is not INamedTypeSymbol named || named.TypeKind is not (TypeKind.Class or TypeKind.Struct))
+        {
+            return null;
+        }
+
+        var key = named.ToDisplayString();
+        if (!seen.Add(key)) return null;
+
+        try
+        {
+            foreach (var member in named.GetMembers().OfType<IPropertySymbol>())
+            {
+                if (member.DeclaredAccessibility != Accessibility.Public || member.IsStatic) continue;
+                if (member.Name == "EqualityContract") continue;
+
+                if (FlagsEnumIn(member.Type, seen, depth + 1) is { } found) return found;
+            }
+
+            return null;
+        }
+        finally
+        {
+            seen.Remove(key);
+        }
+    }
+
+    /// <summary>
     /// One type as JSON Schema. Depth-limited, and cycle-guarded by name.
     /// </summary>
     /// <remarks>
@@ -105,10 +163,14 @@ internal static class SchemaWriter
     {
         if (depth > 3) return null;
 
-        if (JsonTypeFor(type) is { } scalar && scalar != "array")
-        {
-            return $"{{\"type\":\"{scalar}\"}}";
-        }
+        // Nullable<T> first, and not as a tidy-up. Without it the walk below
+        // reaches Nullable<Urgency> as an ordinary struct and describes its
+        // members: a model asked for a Task<Urgency?> was told to reply with
+        // {"hasValue":…,"value":…}, which is a shape nothing wants and no
+        // reply could usefully satisfy.
+        type = Unwrap(type);
+
+        if (ScalarSchema(type) is { } scalar) return scalar;
 
         if (type is IArrayTypeSymbol array)
         {
@@ -249,13 +311,125 @@ internal static class SchemaWriter
             : name;
 
     /// <summary>
+    /// A tool parameter as JSON Schema: a scalar, an enum, or an array of one.
+    /// </summary>
+    /// <remarks>
+    /// Nested objects are not allowed, yet: describing them means walking the
+    /// type graph and deciding what to do about cycles, and a half-correct
+    /// object schema is worse than a build error that says to flatten the
+    /// parameter. Arrays of a supported scalar are allowed because "give me
+    /// several" is the commonest shape a tool actually needs — and they carry
+    /// their <c>items</c>, because <c>{"type":"array"}</c> alone tells a model
+    /// nothing about what to put in it.
+    /// </remarks>
+    private static string? ParameterSchema(ITypeSymbol type)
+    {
+        type = Unwrap(type);
+
+        if (ScalarSchema(type) is { } scalar) return scalar;
+
+        if (type is IArrayTypeSymbol array && ScalarSchema(Unwrap(array.ElementType)) is { } items)
+        {
+            return $"{{\"type\":\"array\",\"items\":{items}}}";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// A scalar or enum as JSON Schema, or <c>null</c> for anything else.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An enum is <b>not</b> <c>{"type":"string"}</c>. That was the shape this
+    /// emitted before, and it is the reason routing did not work: the model was
+    /// told to reply with a string and never told which strings were legal, so
+    /// it invented <c>"urgent"</c> for a type whose members are
+    /// <c>Low/Normal/High</c> and the bind failed on a value that reads
+    /// perfectly sensibly.
+    /// </para>
+    /// <para>
+    /// The member list is the whole point of using an enum as a return type:
+    /// it turns "classify this" into a closed set the compiler also knows
+    /// about, so the caller's <c>switch</c> and the model's options are the
+    /// same list.
+    /// </para>
+    /// </remarks>
+    private static string? ScalarSchema(ITypeSymbol type)
+    {
+        if (type.TypeKind == TypeKind.Enum)
+        {
+            // A flags enum is a set, not a choice; AGT008 names it at build.
+            if (IsFlags(type)) return null;
+
+            var members = EnumWireNames(type).ToArray();
+            if (members.Length == 0) return null;
+
+            var values = string.Join(",", members.Select(m => $"\"{m}\""));
+            return $"{{\"type\":\"string\",\"enum\":[{values}]}}";
+        }
+
+        return JsonTypeFor(type) is { } name ? $"{{\"type\":\"{name}\"}}" : null;
+    }
+
+    /// <summary>
+    /// Every member of an enum, spelled as the binder will expect it.
+    /// </summary>
+    /// <remarks>
+    /// camelCase to match the <c>JsonStringEnumConverter</c> the runtime binds
+    /// with, and <c>[JsonStringEnumMemberName]</c> ahead of that, because the
+    /// converter honours it and a schema that did not would name values the
+    /// binder rejects.
+    /// </remarks>
+    private static IEnumerable<string> EnumWireNames(ITypeSymbol type) =>
+        type.GetMembers()
+            .OfType<IFieldSymbol>()
+            .Where(field => field.IsConst && field.HasConstantValue)
+            .Select(field => WireName(field));
+
+    private static string WireName(IFieldSymbol field)
+    {
+        foreach (var attribute in field.GetAttributes())
+        {
+            if (attribute.AttributeClass?.ToDisplayString() != EnumMemberNameAttribute) continue;
+
+            if (attribute.ConstructorArguments.FirstOrDefault().Value is string given && given.Length > 0)
+            {
+                return given;
+            }
+        }
+
+        return Camel(field.Name);
+    }
+
+    private static bool IsFlags(ITypeSymbol type) =>
+        type.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == FlagsAttribute);
+
+    /// <summary>The <c>T</c> of a <c>Nullable&lt;T&gt;</c>, or the type itself.</summary>
+    private static ITypeSymbol Unwrap(ITypeSymbol type) =>
+        type is INamedTypeSymbol { IsGenericType: true } named &&
+        named.ConstructedFrom.SpecialType == SpecialType.System_Nullable_T
+            ? named.TypeArguments[0]
+            : type;
+
+    /// <summary>
     /// The <c>JsonElement</c> accessor for a parameter, chosen at compile time.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Paired with <see cref="JsonTypeFor"/> and kept beside it deliberately: a
     /// type that gains a schema entry but no reader would emit dispatch that
     /// does not compile, and the two drifting apart is the obvious way for that
     /// to happen.
+    /// </para>
+    /// <para>
+    /// An enum reads through a generated <c>switch</c> over the same wire names
+    /// the schema lists, rather than through <c>Enum.Parse</c>. Two reasons,
+    /// and the second is the one that matters: <c>Enum.Parse</c> is reflection
+    /// on the path this library claims is free of it, and it knows nothing
+    /// about <c>[JsonStringEnumMemberName]</c> — so a renamed member would be
+    /// offered to the model and then refused on arrival.
+    /// </para>
     /// </remarks>
     public static string? ReaderFor(ITypeSymbol type) => type.SpecialType switch
     {
@@ -268,10 +442,28 @@ internal static class SchemaWriter
         SpecialType.System_Decimal => "GetDecimal()",
         _ when type is IArrayTypeSymbol array && ReaderFor(array.ElementType) is { } element =>
             $"EnumerateArray().Select(e => e.{element}).ToArray()",
-        _ when type.TypeKind == TypeKind.Enum =>
-            $"GetString() is {{ }} s ? ({type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})global::System.Enum.Parse(typeof({type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}), s, true) : default",
+        _ when type.TypeKind == TypeKind.Enum && !IsFlags(type) => EnumReader(type),
         _ => null,
     };
+
+    /// <summary>A <c>switch</c> from wire name to member, built at compile time.</summary>
+    private static string EnumReader(ITypeSymbol type)
+    {
+        var qualified = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+        var arms = type.GetMembers()
+            .OfType<IFieldSymbol>()
+            .Where(field => field.IsConst && field.HasConstantValue)
+            .Select(field => $"\"{WireName(field)}\" => {qualified}.{field.Name}");
+
+        // The default arm throws rather than falling back to the zero value. A
+        // tool argument the model invented should fail loudly at the boundary;
+        // silently becoming whichever member happens to be 0 is how a wrong
+        // call looks like a right one in a trace.
+        return "GetString() switch { "
+            + string.Join(", ", arms)
+            + $", var other => throw new global::System.ArgumentException($\"'{{other}}' is not a valid {type.Name}.\") }}";
+    }
 
     private static string? JsonTypeFor(ITypeSymbol type) => type.SpecialType switch
     {
@@ -279,8 +471,6 @@ internal static class SchemaWriter
         SpecialType.System_Boolean => "boolean",
         SpecialType.System_Int32 or SpecialType.System_Int64 => "integer",
         SpecialType.System_Double or SpecialType.System_Single or SpecialType.System_Decimal => "number",
-        _ when type is IArrayTypeSymbol array && JsonTypeFor(array.ElementType) is not null => "array",
-        _ when type.TypeKind == TypeKind.Enum => "string",
         _ => null,
     };
 }
