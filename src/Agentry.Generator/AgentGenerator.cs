@@ -40,6 +40,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
     private const string PromptAttribute = "Agentry.PromptAttribute";
     private const string StrategyAttribute = "Agentry.StrategyAttribute";
     private const string AgentToolAttribute = "Agentry.AgentToolAttribute";
+    private const string ModelAttribute = "Agentry.ModelAttribute";
     private const string RequiresPermissionAttribute = "Agentry.RequiresPermissionAttribute";
 
 
@@ -305,6 +306,17 @@ public sealed class AgentGenerator : IIncrementalGenerator
             parameters.Add(new ParameterModel(parameter.Name, type, isString));
         }
 
+        var modelRole = method.GetAttributes()
+            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == ModelAttribute)
+            ?.ConstructorArguments.FirstOrDefault().Value as string;
+
+        if (modelRole is not null && string.IsNullOrWhiteSpace(modelRole))
+        {
+            diagnostics.Add(Diagnostic.Create(
+                Diagnostics.EmptyModelRole, Location(method), Display(method)));
+            modelRole = null;
+        }
+
         // Reused for the tool loop, not just CodeAct. A method that can call
         // tools can trade turns with them, and that needs a bound wherever the
         // turns come from.
@@ -324,7 +336,8 @@ public sealed class AgentGenerator : IIncrementalGenerator
             // document containing prose.
             ReturnSchema: shape == ReturnShape.Json
                 ? SchemaWriter.TryWriteReturn(ReturnTypeOf(method)) ?? string.Empty
-                : string.Empty);
+                : string.Empty,
+            ModelRole: modelRole);
     }
 
     private static bool TryReadReturn(ITypeSymbol returnType, out ReturnShape shape, out string type)
