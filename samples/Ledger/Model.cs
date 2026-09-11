@@ -27,6 +27,26 @@ internal static class Model
 {
     private const string OllamaEndpoint = "http://localhost:11434/v1";
 
+    /// <summary>A client for one named model, on the same endpoint.</summary>
+    public static IChatClient For(string model)
+    {
+        var (_, endpoint, key) = Endpoint();
+        return new OpenAIClient(new ApiKeyCredential(key ?? "ollama"),
+                new OpenAIClientOptions { Endpoint = new Uri(endpoint) })
+            .GetChatClient(model)
+            .AsIChatClient();
+    }
+
+    private static (string? Model, string Endpoint, string? Key) Endpoint()
+    {
+        var endpoint = Environment.GetEnvironmentVariable("AGENTRY_ENDPOINT");
+        var key = Environment.GetEnvironmentVariable("AGENTRY_API_KEY")
+                  ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+
+        endpoint ??= key is not null ? "https://api.openai.com/v1" : OllamaEndpoint;
+        return (Environment.GetEnvironmentVariable("AGENTRY_MODEL"), endpoint, key);
+    }
+
     public static (IChatClient Client, string Description) Resolve()
     {
         var model = Environment.GetEnvironmentVariable("AGENTRY_MODEL");

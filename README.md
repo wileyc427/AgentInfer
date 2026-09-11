@@ -175,6 +175,102 @@ verdict: approved=True score=4/5
 `Reclassify` requires `ledger.write`, so it is absent from what the model was
 told — not refused, absent.
 
+## Two methods, two models
+
+```csharp
+[Prompt("Which categories are over budget, and by how much?")]
+[Model("accurate")]
+public Task<string> SummariseAsync(CancellationToken ct = default);
+
+[Prompt("Classify how urgent this request is.")]
+public Task<Urgency> TriageAsync(string request, CancellationToken ct = default);
+```
+
+generates two different call sites in one class:
+
+```csharp
+return await _router.For(@"accurate").CompleteWithToolsAsync(call, …);
+return await _runner.CompleteJsonWithToolsAsync<Urgency>(call, …);
+```
+
+**It names a role, not a model.** `[Model("accurate")]`, never
+`[Model("claude-sonnet-5")]`. A domain assembly should not carry vendor model
+ids: the mapping differs between a laptop and production, changes when a model
+is deprecated, and is configuration rather than design. Same instinct as
+`[RequiresPermission("ledger.read")]` naming a permission rather than a list of
+people.
+
+The router is a constructor dependency **only when some method asks for a
+role**, so the common case stays one dependency and a router in a constructor is
+a signal rather than boilerplate.
+
+### Where a role becomes a model name
+
+Two hops, and the library owns only one. A role resolves to an `AgentRunner`;
+the runner already knows its model, because the `IChatClient` was built with it.
+There is no `"accurate"` → `"claude-sonnet-5"` table inside Agentry — that
+string is deployment configuration.
+
+```json
+{ "Agentry": { "Models": { "accurate": "claude-sonnet-5", "cheap": "qwen3:8b" } } }
+```
+
+```csharp
+services.AddAgentryModels(configuration, (model, sp) => ClientFor(model))
+        .ValidateRoles(AgentryRoles.All);
+```
+
+`AddAgentryModels` registers one keyed `AgentRunner` per configured role plus an
+`IModelRouter` over them. Clients are built **lazily and once**, so registering
+ten models opens no connections.
+
+It does not build clients itself. Constructing an `IChatClient` is
+provider-specific — endpoint, credential, SDK — and a library that guessed would
+be wrong for everyone but its author.
+
+### Role names without magic strings
+
+Define your own constants and use them in the attribute:
+
+```csharp
+public static class ModelRoles
+{
+    public const string Accurate = "accurate";
+}
+
+[Model(ModelRoles.Accurate)]
+public Task<string> SummariseAsync(CancellationToken ct = default);
+```
+
+`const`, because an attribute argument must be a compile-time constant. A rename
+is then a rename.
+
+**These are yours to define, not generated** — and that is a constraint rather
+than an omission. The generator learns a role *by reading the attribute*, so a
+constant it emitted could not be used in the attribute that produced it. The
+dependency only runs one way.
+
+What *is* generated is `AgentryRoles.All`, the set of roles actually asked for:
+
+```csharp
+internal static class AgentryRoles
+{
+    public static readonly string[] All = ["accurate"];
+}
+```
+
+Your constants make a rename a rename. That array makes a missing registration a
+**startup failure** rather than a request that dies halfway through, minutes
+after deploy, reading as a missing service. A configured role nothing asks for
+is a warning instead — dead configuration is worth noticing and not worth
+refusing to start over.
+
+Why it exists: given the same correct one-call tool result, `qwen3:latest`
+summarised correctly once and answered *"no categories are over budget"* the
+next time — with coffee at 22.80 against a 15.00 budget. Fetching the data was
+never the hard part, so the method that has to reason wants a different model
+from the one that classifies.
+
 ## Measuring whether you need generated code
 
 Every generation method logs what the turn actually cost:
