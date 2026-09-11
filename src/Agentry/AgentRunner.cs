@@ -124,16 +124,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     {
         ArgumentNullException.ThrowIfNull(contract);
 
-        // A schema on the call AND a contract is not a precedence question: one
-        // of the two has been edited and the other has not, and nothing here
-        // can tell which. Same reading as AGT009 gives a prompt named twice.
-        if (call.ResponseSchema.Length > 0)
-        {
-            throw new ArgumentException(
-                $"{call.Operation}: the call sets ResponseSchema and a contract was supplied. "
-                + "The contract owns the schema — leave ResponseSchema unset.",
-                nameof(call));
-        }
+        RefuseDoubleSchema(call);
 
         using var activity = Source.StartActivity(call.Operation);
         var started = Stopwatch.GetTimestamp();
@@ -149,9 +140,64 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         return Bind(described, text, contract);
     }
 
+    /// <summary>
+    /// Runs a typed method and hands back what came of it, without throwing.
+    /// </summary>
+    /// <remarks>
+    /// For a caller that means to repair. A reply that will not bind or will
+    /// not validate comes back as a failed
+    /// <see cref="ReplyAttempt{T}"/>; a refused connection, a spent budget or a
+    /// cancellation still throws, because those are not outcomes the model
+    /// produced.
+    /// </remarks>
+    public async Task<ReplyAttempt<T>> TryCompleteJsonAsync<T>(
+        AgentCall call,
+        IReplyContract<T> contract,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        RefuseDoubleSchema(call);
+
+        using var activity = Source.StartActivity(call.Operation);
+        var started = Stopwatch.GetTimestamp();
+
+        var described = call with { ResponseSchema = contract.Schema };
+
+        var response = await _client.GetResponseAsync(Build(described, json: true), FormatFor(described), ct)
+            .ConfigureAwait(false);
+
+        var text = response.Text ?? string.Empty;
+        Log(described, started, text.Length);
+
+        return TryBind(described, text, contract, out _);
+    }
+
     /// <summary>Binds through a contract, or explains why it could not.</summary>
     private static T Bind<T>(AgentCall call, string text, IReplyContract<T> contract)
     {
+        var attempt = TryBind(call, text, contract, out var cause);
+
+        return attempt.Succeeded
+            ? attempt.Value
+            : throw new AgentException(call.Operation, attempt.Problem!, cause);
+    }
+
+    /// <summary>
+    /// Binds a reply, or says why it could not — without throwing.
+    /// </summary>
+    /// <remarks>
+    /// The single binding path. <see cref="Bind{T}"/> is this plus a throw, so
+    /// the two cannot disagree about what counts as a usable reply or about the
+    /// sentence describing an unusable one.
+    /// </remarks>
+    private static ReplyAttempt<T> TryBind<T>(
+        AgentCall call,
+        string text,
+        IReplyContract<T> contract,
+        out Exception? cause)
+    {
+        cause = null;
+
         T? value;
 
         try
@@ -160,19 +206,16 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         }
         catch (JsonException error)
         {
-            throw BindFailure<T>(call, text, error);
+            cause = error;
+            return ReplyAttempt<T>.Failed(BindFailureMessage<T>(text, error));
         }
 
-        if (value is null) throw new AgentException(call.Operation, "the model returned JSON null");
+        if (value is null) return ReplyAttempt<T>.Failed("the model returned JSON null");
 
-        if (contract.Validate(value) is { } problem)
-        {
-            throw new AgentException(
-                call.Operation,
-                $"the reply bound to {typeof(T).Name} but failed validation: {problem}. Reply was: {Trim(text)}");
-        }
-
-        return value;
+        return contract.Validate(value) is { } problem
+            ? ReplyAttempt<T>.Failed(
+                $"the reply bound to {typeof(T).Name} but failed validation: {problem}. Reply was: {Trim(text)}")
+            : ReplyAttempt<T>.Ok(value);
     }
 
     /// <summary>
@@ -185,7 +228,10 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     /// or null — the single most useful sentence available — and dropping it
     /// left "could not bind", which sends you to the wrong place.
     /// </remarks>
-    private static AgentException BindFailure<T>(AgentCall call, string text, JsonException error)
+    private static AgentException BindFailure<T>(AgentCall call, string text, JsonException error) =>
+        new(call.Operation, BindFailureMessage<T>(text, error), error);
+
+    private static string BindFailureMessage<T>(string text, JsonException error)
     {
         var hint = LooksLikeToolCalls(text)
             ? $" The model answered with tool-call JSON instead of a {typeof(T).Name}, "
@@ -193,10 +239,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
               + "Smaller models resolve that by writing the calls out as text."
             : string.Empty;
 
-        return new AgentException(
-            call.Operation,
-            $"could not bind the reply to {typeof(T).Name}. {error.Message}{hint} Reply was: {Trim(text)}",
-            error);
+        return $"could not bind the reply to {typeof(T).Name}. {error.Message}{hint} Reply was: {Trim(text)}";
     }
 
     /// <summary>
@@ -321,16 +364,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     {
         ArgumentNullException.ThrowIfNull(contract);
 
-        // A schema on the call AND a contract is not a precedence question: one
-        // of the two has been edited and the other has not, and nothing here
-        // can tell which. Same reading as AGT009 gives a prompt named twice.
-        if (call.ResponseSchema.Length > 0)
-        {
-            throw new ArgumentException(
-                $"{call.Operation}: the call sets ResponseSchema and a contract was supplied. "
-                + "The contract owns the schema — leave ResponseSchema unset.",
-                nameof(call));
-        }
+        RefuseDoubleSchema(call);
         ArgumentNullException.ThrowIfNull(invoker);
         ArgumentNullException.ThrowIfNull(authorizer);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxIterations, 1);
@@ -353,6 +387,57 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
             .ConfigureAwait(false);
 
         return Bind(described, reply.Text ?? string.Empty, contract);
+    }
+
+    /// <summary>A tool-using typed method that reports failure rather than throwing.</summary>
+    public async Task<ReplyAttempt<T>> TryCompleteJsonWithToolsAsync<T>(
+        AgentCall call,
+        IReplyContract<T> contract,
+        ToolInvoker invoker,
+        IToolAuthorizer authorizer,
+        int maxIterations = 6,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentNullException.ThrowIfNull(invoker);
+        ArgumentNullException.ThrowIfNull(authorizer);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxIterations, 1);
+        RefuseDoubleSchema(call);
+
+        using var activity = Source.StartActivity(call.Operation);
+        var started = Stopwatch.GetTimestamp();
+
+        var described = call with { ResponseSchema = contract.Schema };
+
+        var text = await RunWithToolsAsync(described, invoker, authorizer, maxIterations, json: false, started, ct)
+            .ConfigureAwait(false);
+
+        var binding = described with
+        {
+            Operation = described.Operation + " (bind)",
+            Arguments = [.. described.Arguments, new KeyValuePair<string, string>("answer", text)],
+        };
+
+        var reply = await _client.GetResponseAsync(Build(binding, json: true), FormatFor(binding), ct)
+            .ConfigureAwait(false);
+
+        return TryBind(described, reply.Text ?? string.Empty, contract, out _);
+    }
+
+    /// <summary>
+    /// A schema on the call and a contract is a contradiction, not a
+    /// precedence question: one of the two has been edited and the other has
+    /// not, and nothing here can tell which. Same reading AGT009 gives a prompt
+    /// named twice.
+    /// </summary>
+    private static void RefuseDoubleSchema(AgentCall call)
+    {
+        if (call.ResponseSchema.Length == 0) return;
+
+        throw new ArgumentException(
+            $"{call.Operation}: the call sets ResponseSchema and a contract was supplied. "
+            + "The contract owns the schema — leave ResponseSchema unset.",
+            nameof(call));
     }
 
     private async Task<string> RunWithToolsAsync(
