@@ -37,7 +37,7 @@ started.
 | Package | What it is |
 | --- | --- |
 | `Agentry.Abstractions` | The attributes. netstandard2.0, zero dependencies |
-| `Agentry.Generator` | The Roslyn incremental generator |
+| `Agentry.Generator` | The Roslyn incremental generator. Not published on its own — it ships inside `Agentry` under `analyzers/dotnet/cs`, so one `PackageReference` is the whole install |
 | `Agentry` | The runtime generated code calls into |
 
 ## The two decisions worth knowing
