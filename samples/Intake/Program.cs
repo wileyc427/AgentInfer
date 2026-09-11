@@ -24,17 +24,42 @@ using OpenAI;
 
 var live = args.Contains("--live", StringComparer.Ordinal);
 
+// Configuration, with the precedence deliberately inverted.
+//
+// The .NET convention is JSON first and environment variables last, so the
+// environment wins. These samples do the opposite: a value written in
+// appsettings beats one in the environment. That is not how a production host
+// should be wired, and it is the right call here — you edit a file, run, and
+// what you typed is what runs, rather than losing to an export from an hour ago
+// that nothing on screen mentions.
+//
+// "Beats" means a value that is PRESENT wins. A key absent from the file still
+// falls through to the environment, which is what keeps a committed file from
+// blanking a real credential.
+//
+// appsettings.Development.json is last and is gitignored: it is where a local
+// key goes.
 var configuration = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
-    .AddJsonFile("appsettings.json", optional: false)
     .AddEnvironmentVariables()
+    .AddJsonFile("appsettings.json", optional: false)
+    .AddJsonFile("appsettings.Development.json", optional: true)
     .Build();
 
 var section = configuration.GetSection("Agentry");
 
 using var logs = LoggerFactory.Create(builder => builder
-    .SetMinimumLevel(LogLevel.Warning)
+    // Information, not Warning. AgentRunner logs one line per generation call
+    // — "1 of 2 tools offered, 4 call(s) — TotalFor×4" — and it is the most
+    // diagnostic output this library produces. At Warning the sample ran
+    // silently and told you nothing about what the model actually did.
+    .SetMinimumLevel(LogLevel.Information)
     .AddSimpleConsole(options => options.SingleLine = true));
+
+// Nothing listens to a Meter by default, so every instrument in this library
+// records into a void. --metrics prints the distributions at exit; a real host
+// points OpenTelemetry at the "Agentry" meter instead.
+var metrics = args.Contains("--metrics", StringComparer.Ordinal) ? new Meters() : null;
 
 var rehearsal = new Rehearsal();
 
@@ -72,11 +97,16 @@ var tools = new IntakeToolsInvoker(new IntakeTools());
 // Hand-written: this one line, and the class behind it.
 IIntake intake = new IntakeAgent(router, tools, caller, policy);
 
-Console.WriteLine(live ? "model: live\n" : "model: scripted (pass --live for a real one)\n");
+Console.WriteLine(live ? "model: live" : "model: scripted (pass --live for a real one)");
 
+// Where every setting that matters came from. The precedence is inverted so a
+// file beats the environment; printing the winner is what makes that safe to
+// rely on rather than something to remember.
+Console.WriteLine($"  default:  {Configured(configuration, "Agentry:DefaultModel")}");
 foreach (var (role, binding) in agentry.Models)
 {
-    Console.WriteLine($"role {role}: {binding.Model} at {binding.Provider.Endpoint}");
+    Console.WriteLine(
+        $"  role {role}: {binding.Model} at {binding.Provider.Endpoint}  (key: {binding.Provider.KeySource})");
 }
 
 Console.WriteLine();
@@ -136,6 +166,9 @@ catch (Exception error)
     return 1;
 }
 
+metrics?.Report();
+metrics?.Dispose();
+
 return 0;
 
 IChatClient Live(string model, string endpoint, string? apiKey) =>
@@ -163,4 +196,27 @@ static string Explain(Exception error)
 
         _ => $"{cause.GetType().Name}: {cause.Message}",
     };
+}
+
+/// <summary>
+/// Reports a setting and where it came from.
+/// </summary>
+/// <remarks>
+/// The point of inverting the precedence was not having to go and check the
+/// environment. Printing the winner and its source finishes that job: if a
+/// value is not what you expected, the run already told you which file or
+/// variable to open.
+/// </remarks>
+static string Configured(IConfiguration configuration, string key)
+{
+    var value = configuration[key];
+    if (value is null) return "(unset)";
+
+    // The environment provider is consulted first and overridden by the files,
+    // so an environment value that survived is one no file mentioned.
+    var fromEnvironment = Environment.GetEnvironmentVariable(key.Replace(":", "__"));
+
+    return fromEnvironment == value && fromEnvironment is not null
+        ? $"{value}  (from the environment)"
+        : $"{value}  (from appsettings)";
 }

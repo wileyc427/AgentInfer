@@ -282,6 +282,40 @@ public sealed class RegistrationTests
         Assert.Contains("TEST_OPENAI_KEY", warnings);
     }
 
+    [Fact]
+    public void A_key_written_in_configuration_wins()
+    {
+        Environment.SetEnvironmentVariable("TEST_OPENAI_KEY", "from-the-environment");
+
+        var configured = Config(
+            ("Agentry:Providers:openai:Endpoint", "https://api.openai.com/v1"),
+            ("Agentry:Providers:openai:ApiKeyVariable", "TEST_OPENAI_KEY"),
+            ("Agentry:Providers:openai:ApiKey", "from-the-file"),
+            ("Agentry:DefaultProvider", "openai"),
+            ("Agentry:Models:accurate:Provider", "openai"),
+            ("Agentry:Models:accurate:Model", "gpt-5-mini"));
+
+        var agentry = new ServiceCollection().AddAgentryModels(configured, new Factory().Create);
+
+        Assert.Equal("from-the-file", agentry.Providers["openai"].ApiKey);
+        Assert.Equal("configuration", agentry.Providers["openai"].KeySource);
+    }
+
+    [Fact]
+    public void A_key_absent_from_configuration_does_not_blank_the_environment()
+    {
+        Environment.SetEnvironmentVariable("TEST_OPENAI_KEY", "from-the-environment");
+
+        // The whole safety property. If absent counted as empty, the committed
+        // appsettings.json — which has no ApiKey in it and should not — would
+        // override a real credential and turn every run into a 401 that reads
+        // like a bad key rather than a missing one.
+        var agentry = new ServiceCollection().AddAgentryModels(TwoProviders(), new Factory().Create);
+
+        Assert.Equal("from-the-environment", agentry.Providers["openai"].ApiKey);
+        Assert.Equal("TEST_OPENAI_KEY", agentry.Providers["openai"].KeySource);
+    }
+
     private static string Warnings(Action act)
     {
         var original = Console.Error;

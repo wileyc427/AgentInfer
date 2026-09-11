@@ -96,7 +96,12 @@ public static class AgentryServiceCollectionExtensions
                     $"The provider '{child.Key}' has no Endpoint under {sectionName}:Providers.");
             }
 
-            providers[child.Key] = new ProviderOptions(child.Key, endpoint, child["ApiKeyVariable"]);
+            // ApiKey is read as well as ApiKeyVariable, so a local run can put
+            // one in appsettings.Development.json rather than an export. See
+            // ProviderOptions.ApiKey for why a key that is absent never blanks
+            // one that is present.
+            providers[child.Key] = new ProviderOptions(
+                child.Key, endpoint, child["ApiKeyVariable"], child["ApiKey"]);
         }
 
         return providers;
@@ -237,7 +242,8 @@ public sealed class AgentryBuilder(
             if (provider.ApiKeyVariable is { Length: > 0 } variable && provider.ApiKey is null)
             {
                 Console.Error.WriteLine(
-                    $"[Agentry] Provider '{provider.Name}' expects a key in {variable}, which is not set.");
+                    $"[Agentry] Provider '{provider.Name}' expects a key in {variable}, which is not set. "
+                    + "Set it, or put ApiKey in appsettings.Development.json.");
             }
         }
 
