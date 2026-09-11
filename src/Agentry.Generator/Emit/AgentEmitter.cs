@@ -120,10 +120,18 @@ internal static class AgentEmitter
 
         foreach (var method in model.Methods)
         {
-            EmitMethod(code, method, model.Tools.Count > 0);
+            EmitMethod(code, method, model.Tools.Count > 0, model.JsonContext.Length > 0 && method.Shape == ReturnShape.Json);
         }
 
         code.AppendLine("}");
+
+        if (model.JsonContext.Length > 0)
+        {
+            foreach (var method in model.Methods)
+            {
+                if (method.Shape == ReturnShape.Json) EmitContract(code, model, method);
+            }
+        }
 
         if (model.Tools.Count > 0)
         {
@@ -139,7 +147,56 @@ internal static class AgentEmitter
         return code.ToString();
     }
 
-    private static void EmitMethod(StringBuilder code, MethodModel method, bool hasTools)
+    /// <summary>
+    /// Schema, binding metadata and value rule for one return type, as one class.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// All three come from one read of the return type and its attributes, so
+    /// they cannot disagree — which is the failure this replaces. A model
+    /// answered <c>score: 100</c> to a field meant to be 1–5 and bound cleanly,
+    /// because the schema said "integer" and the check lived somewhere else.
+    /// </para>
+    /// <para>
+    /// <c>TypeInfo</c> reaches into a <c>JsonSerializerContext</c> the consumer
+    /// declared. It cannot be emitted here: generators do not chain, so a
+    /// context written by this generator is invisible to System.Text.Json's and
+    /// compiles to an abstract class with no metadata in it. Referencing one is
+    /// fine — both generators' outputs land in the same compilation.
+    /// </para>
+    /// </remarks>
+    private static void EmitContract(StringBuilder code, AgentModel model, MethodModel method)
+    {
+        var name = method.Name + "Contract";
+        var element = method.ReturnType.Substring(method.ReturnType.LastIndexOf('.') + 1);
+
+        code.AppendLine();
+        code.AppendLine("/// <summary>What the model is told, how it is bound, and what it must satisfy.</summary>");
+        code.Append("file sealed class ").Append(name)
+            .Append(" : global::Agentry.IReplyContract<").Append(method.ReturnType).AppendLine(">");
+        code.AppendLine("{");
+        code.Append("    public static ").Append(name).AppendLine(" Instance { get; } = new();");
+        code.AppendLine();
+        code.Append("    public string Schema => ").Append(ToolEmit.Literal(method.ReturnSchema)).AppendLine(";");
+        code.AppendLine();
+        code.Append("    public global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<")
+            .Append(method.ReturnType).Append("> TypeInfo => ")
+            .Append(model.JsonContext).Append(".Default.").Append(element).AppendLine(";");
+        code.AppendLine();
+        code.Append("    public string? Validate(").Append(method.ReturnType).AppendLine(" value)");
+        code.AppendLine("    {");
+
+        foreach (var check in method.ReturnChecks)
+        {
+            code.Append("        ").AppendLine(check);
+        }
+
+        code.AppendLine("        return null;");
+        code.AppendLine("    }");
+        code.AppendLine("}");
+    }
+
+    private static void EmitMethod(StringBuilder code, MethodModel method, bool hasTools, bool hasContract)
     {
         var ct = method.CancellationTokenParameter ?? "default";
 
@@ -219,19 +276,40 @@ internal static class AgentEmitter
             code.Append("        return await ").Append(runner).Append('.').Append(name).Append("(call")
                 .Append(tools).Append(", ").Append(ct).AppendLine(").ConfigureAwait(false);");
         }
-        else
+        else if (hasContract)
         {
-            code.AppendLine("#pragma warning disable IL2026, IL3050 // P1 binds JSON reflectively; see AgentRunner.");
+            // No pragma. The contract carries a JsonTypeInfo from a
+            // source-generated context and checks its own values, so there is
+            // no reflection on this path for an analyzer to warn about — and
+            // nothing to suppress, which is the point. A suppression asserts
+            // "analysed, and safe"; this path actually is.
+            var contract = method.Name + "Contract.Instance";
 
             if (hasTools)
             {
-                code.Append("        return await ").Append(runner).Append(".CompleteJsonWithToolsAsync<").Append(method.ReturnType)
+                code.Append("        return await ").Append(runner).Append(".CompleteJsonWithToolsAsync(call, ")
+                    .Append(contract).Append(tools).Append(", ").Append(ct)
+                    .AppendLine(").ConfigureAwait(false);");
+            }
+            else
+            {
+                code.Append("        return await ").Append(runner).Append(".CompleteJsonAsync(call, ")
+                    .Append(contract).Append(", ").Append(ct).AppendLine(").ConfigureAwait(false);");
+            }
+        }
+        else
+        {
+            code.AppendLine("#pragma warning disable IL2026, IL3050 // Reflective bind; declare [assembly: AgentryJson] to avoid.");
+
+            if (hasTools)
+            {
+                code.Append("        return await ").Append(runner).Append(".CompleteJsonWithToolsReflectivelyAsync<").Append(method.ReturnType)
                     .Append(">(call").Append(tools).Append(", null, ").Append(ct)
                     .AppendLine(").ConfigureAwait(false);");
             }
             else
             {
-                code.Append("        return await ").Append(runner).Append(".CompleteJsonAsync<").Append(method.ReturnType)
+                code.Append("        return await ").Append(runner).Append(".CompleteJsonReflectivelyAsync<").Append(method.ReturnType)
                     .Append(">(call, null, ").Append(ct).AppendLine(").ConfigureAwait(false);");
             }
 

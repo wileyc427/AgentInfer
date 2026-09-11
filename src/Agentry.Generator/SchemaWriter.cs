@@ -98,6 +98,66 @@ internal static class SchemaWriter
         Describe(type, new HashSet<string>(StringComparer.Ordinal), depth: 0);
 
     /// <summary>
+    /// The value checks a return type declares, as lines of C#.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Read from the same <c>[Range]</c> and <c>[MaxLength]</c> attributes that
+    /// produce the schema, in the same pass — which is the whole point. The
+    /// schema tells the model the bound and this enforces it, and because both
+    /// come from one read of one attribute they cannot disagree. They did
+    /// disagree before: a model answered <c>score: 100</c> to a field meant to
+    /// be 1–5 and bound cleanly, because 100 is a perfectly good integer.
+    /// </para>
+    /// <para>
+    /// Emitted as text rather than checked reflectively, because
+    /// <c>Validator.TryValidateObject</c> walks the instance's properties and
+    /// trimming can leave it walking nothing — a check that reports success
+    /// because it found nothing to check.
+    /// </para>
+    /// </remarks>
+    public static IEnumerable<string> ReturnChecks(ITypeSymbol type)
+    {
+        if (Unwrap(type) is not INamedTypeSymbol named) yield break;
+
+        foreach (var member in named.GetMembers().OfType<IPropertySymbol>())
+        {
+            if (member.DeclaredAccessibility != Accessibility.Public || member.IsStatic) continue;
+            if (member.Name == "EqualityContract") continue;
+
+            foreach (var attribute in member.GetAttributes())
+            {
+                var name = attribute.AttributeClass?.ToDisplayString();
+                var arguments = attribute.ConstructorArguments;
+
+                if (name == "System.ComponentModel.DataAnnotations.RangeAttribute" && arguments.Length >= 2)
+                {
+                    var min = Invariant(arguments[0].Value!);
+                    var max = Invariant(arguments[1].Value!);
+
+                    yield return "if (value." + member.Name + " is < " + min + " or > " + max + ") "
+                        + "return $\"" + Camel(member.Name) + " must be between " + min + " and " + max
+                        + ", not {value." + member.Name + "}\";";
+                }
+                else if (name == "System.ComponentModel.DataAnnotations.MinLengthAttribute" && arguments.Length >= 1)
+                {
+                    var min = Invariant(arguments[0].Value!);
+
+                    yield return "if (value." + member.Name + ".Length < " + min + ") "
+                        + "return \"" + Camel(member.Name) + " must be at least " + min + " long\";";
+                }
+                else if (name == "System.ComponentModel.DataAnnotations.MaxLengthAttribute" && arguments.Length >= 1)
+                {
+                    var max = Invariant(arguments[0].Value!);
+
+                    yield return "if (value." + member.Name + ".Length > " + max + ") "
+                        + "return \"" + Camel(member.Name) + " must be at most " + max + " long\";";
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// The first <c>[Flags]</c> enum reachable in this type, or <c>null</c>.
     /// </summary>
     /// <remarks>

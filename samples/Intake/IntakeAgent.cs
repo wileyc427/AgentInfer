@@ -1,6 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.Diagnostics.CodeAnalysis;
-
 using Agentry;
 
 namespace Intake;
@@ -9,10 +7,17 @@ namespace Intake;
 public enum Category { Billing, Technical, Account, Spam }
 
 /// <summary>The structured read of one ticket.</summary>
+/// <remarks>
+/// No <c>[Range]</c> on Urgency any more. The bound moved into
+/// <see cref="ExtractContract"/>, beside the schema that declares it to the
+/// model — one read of one file to check they agree. DataAnnotations would
+/// have been enforced reflectively, which under trimming can find nothing to
+/// check and report success.
+/// </remarks>
 public sealed record Extract(
     string Customer,
     Category Category,
-    [property: Range(1, 5)] int Urgency,
+    int Urgency,
     string[] Asks);
 
 /// <summary>
@@ -128,14 +133,13 @@ public sealed class IntakeAgent : IIntake
             TaskPrompt = "What is this ticket about?",
             Operation = "IIntake.ClassifyAsync",
             Arguments = [new KeyValuePair<string, string>("ticket", ticket)],
-
-            // Hand-written, and derived from Category. Add a member and this
-            // string is wrong until somebody remembers — the generator's job,
-            // done by hand.
-            ResponseSchema = """{"type":"string","enum":["billing","technical","account","spam"]}""",
         };
 
-        return await Bind<Category>(role, call, ct).ConfigureAwait(false);
+        // The schema travels with the contract, so there is no second place to
+        // keep it.
+        return await _router.For(role)
+            .CompleteJsonAsync(call, CategoryContract.Instance, ct)
+            .ConfigureAwait(false);
     }
 
     /// <summary>Prose over tools. The plain case, and it is one line.</summary>
@@ -180,20 +184,11 @@ public sealed class IntakeAgent : IIntake
             TaskPrompt = "Read this ticket and extract the customer, the category, how urgent it is, and what they are asking for.",
             Operation = "IIntake.ExtractAsync",
             Arguments = [new KeyValuePair<string, string>("ticketId", ticketId)],
-
-            // The line that rots. Derived from Extract — including the [Range]
-            // on Urgency and the camelCasing the binder expects — and nothing
-            // checks it still agrees with the record. This is precisely what
-            // [Agent] would have emitted, and precisely what you take on by
-            // writing the class.
-            ResponseSchema = """
-                {"type":"object","properties":{"customer":{"type":"string"},"category":{"type":"string","enum":["billing","technical","account","spam"]},"urgency":{"type":"integer","minimum":1,"maximum":5},"asks":{"type":"array","items":{"type":"string"}}},"required":["customer","category","urgency","asks"],"additionalProperties":false}
-                """,
         };
 
         try
         {
-            return await Extract(call, ct).ConfigureAwait(false);
+            return await ExtractOnceAsync(call, ct).ConfigureAwait(false);
         }
         catch (AgentException error)
         {
@@ -210,30 +205,22 @@ public sealed class IntakeAgent : IIntake
                 ],
             };
 
-            return await Extract(repair, ct).ConfigureAwait(false);
+            return await ExtractOnceAsync(repair, ct).ConfigureAwait(false);
         }
     }
 
-    /// <summary>The typed call, kept in one place so the repair can reuse it.</summary>
+    /// <summary>
+    /// One attempt, so the repair can retry exactly the same call.
+    /// </summary>
     /// <remarks>
-    /// Carries the runtime's own annotations rather than suppressing them.
-    /// <c>CompleteJsonWithToolsAsync</c> is marked <c>[RequiresUnreferencedCode]</c>
-    /// because it really does bind reflectively, and a method that calls it is
-    /// in the same position — so it says so, and the warning travels to whoever
-    /// publishes trimmed. An <c>UnconditionalSuppressMessage</c> here would
-    /// assert the opposite: "analysed, and safe". It is not safe, and the
-    /// suppression would stop the one signal that says so.
+    /// No <c>[RequiresUnreferencedCode]</c> and nothing suppressed. The
+    /// contract carries a <c>JsonTypeInfo</c> from a source-generated
+    /// <c>JsonSerializerContext</c> and checks its own values, so there is no
+    /// reflection on this path for an annotation to warn about.
     /// </remarks>
-    [RequiresUnreferencedCode("Binds the reply with reflection-based JSON.")]
-    [RequiresDynamicCode("Binds the reply with reflection-based JSON.")]
-    private Task<Extract> Extract(AgentCall call, CancellationToken ct) =>
+    private Task<Extract> ExtractOnceAsync(AgentCall call, CancellationToken ct) =>
         _router.For(IntakeRoles.Accurate)
-            .CompleteJsonWithToolsAsync<Extract>(call, _tools, _authorizer, 12, null, ct);
-
-    [RequiresUnreferencedCode("Binds the reply with reflection-based JSON.")]
-    [RequiresDynamicCode("Binds the reply with reflection-based JSON.")]
-    private Task<T> Bind<T>(string role, AgentCall call, CancellationToken ct) =>
-        _router.For(role).CompleteJsonAsync<T>(call, null, ct);
+            .CompleteJsonWithToolsAsync(call, ExtractContract.Instance, _tools, _authorizer, 12, ct);
 }
 
 /// <summary>

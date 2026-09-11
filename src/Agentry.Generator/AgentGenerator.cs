@@ -49,6 +49,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
     private const string AgentToolAttribute = "Agentry.AgentToolAttribute";
     private const string AgentToolsAttribute = "Agentry.AgentToolsAttribute";
     private const string ModelAttribute = "Agentry.ModelAttribute";
+    private const string AgentryJsonAttribute = "Agentry.AgentryJsonAttribute";
     private const string RequiresPermissionAttribute = "Agentry.RequiresPermissionAttribute";
 
 
@@ -145,6 +146,30 @@ public sealed class AgentGenerator : IIncrementalGenerator
                 spc.AddSource($"{model.ImplementationName}.g.cs", AgentEmitter.Emit(model));
             }
         });
+    }
+
+    /// <summary>
+    /// The assembly's declared <c>JsonSerializerContext</c>, or empty.
+    /// </summary>
+    /// <remarks>
+    /// Read as a string and thrown away with the rest of the symbols. Present
+    /// means this assembly has opted into a trimmable typed path; absent keeps
+    /// the reflective one, which still works and still says so with
+    /// <c>[RequiresUnreferencedCode]</c>.
+    /// </remarks>
+    private static string JsonContextOf(GeneratorAttributeSyntaxContext ctx)
+    {
+        foreach (var attribute in ctx.SemanticModel.Compilation.Assembly.GetAttributes())
+        {
+            if (attribute.AttributeClass?.ToDisplayString() != AgentryJsonAttribute) continue;
+
+            if (attribute.ConstructorArguments.FirstOrDefault().Value is INamedTypeSymbol context)
+            {
+                return context.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            }
+        }
+
+        return string.Empty;
     }
 
     /// <summary>The result of reading one <c>[AgentTools]</c> type.</summary>
@@ -277,7 +302,8 @@ public sealed class AgentGenerator : IIncrementalGenerator
             PromptFile: promptFile,
             Methods: new EquatableArray<MethodModel>(methods.ToImmutable()),
             Tools: tools,
-            ToolsType: toolsType);
+            ToolsType: toolsType,
+            JsonContext: JsonContextOf(ctx));
 
         return new Result(
             model,
@@ -657,6 +683,10 @@ public sealed class AgentGenerator : IIncrementalGenerator
             ReturnSchema: shape == ReturnShape.Json
                 ? SchemaWriter.TryWriteReturn(ReturnTypeOf(method)) ?? string.Empty
                 : string.Empty,
+            ReturnChecks: new EquatableArray<string>(
+                shape == ReturnShape.Json
+                    ? [.. SchemaWriter.ReturnChecks(ReturnTypeOf(method))]
+                    : ImmutableArray<string>.Empty),
             ModelRole: modelRole);
     }
 
