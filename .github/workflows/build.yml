@@ -83,8 +83,15 @@ jobs:
       # IChatClient, so it needs no endpoint and no key — and it exercises the
       # generator, the tool loop, the permission gate, enum binding and the
       # scope counters end to end. Compiling it proves none of that.
+      # Both scripted samples, because they exercise different halves: Incident
+      # runs a fully generated agent, Intake runs a hand-written one over
+      # generated tools. A change that breaks only the second is exactly the
+      # kind the first would not notice.
       - name: Run the incident sample
         run: dotnet run --project samples/Incident --no-build -c ${{ matrix.configuration }}
+
+      - name: Run the intake sample
+        run: dotnet run --project samples/Intake --no-build -c ${{ matrix.configuration }}
 
       - name: Upload test results
         if: always()
