@@ -10,6 +10,9 @@
       diffed and reviewed. On for the sample on purpose: "you can just open the
       generated file" is a claim this design makes, and it should be true here.
     -->
+    <!-- A sample is something to read and run, not something to ship. -->
+    <IsPackable>false</IsPackable>
+
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>

@@ -153,7 +153,7 @@ internal static class Diagnostics
     /// <c>"Read, Write"</c> — which reads correctly and binds to nothing.
     /// </summary>
     public static readonly DiagnosticDescriptor UnsupportedFlagsEnum = new(
-        id: "AGT008",
+        id: "AGT011",
         title: "Flags enum has no JSON schema",
         messageFormat: "'{0}' uses '{1}', which is a [Flags] enum. JSON Schema describes a choice of one value, not a set — return an array of a plain enum instead.",
         category: Category,
