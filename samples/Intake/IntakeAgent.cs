@@ -169,11 +169,9 @@ public sealed class IntakeAgent : IIntake
     /// reviewer can see it — in the caller's own loop, with the bound visible.
     /// </para>
     /// <para>
-    /// It works because <c>AgentException</c> carries what the model actually
-    /// said and why it would not bind, which is exactly the sentence a model
-    /// needs in order to fix its own reply. A second attempt and no more: a
-    /// model that has failed twice on a schema is not going to succeed on the
-    /// third, and the bound belongs next to the loop rather than in a setting.
+    /// It works because the failed attempt carries what the model actually said
+    /// and why it would not bind, which is exactly the sentence a model needs
+    /// in order to fix its own reply. A second attempt and no more.
     /// </para>
     /// </remarks>
     public async Task<Extract> ExtractAsync(string ticketId, CancellationToken ct = default)
@@ -186,41 +184,44 @@ public sealed class IntakeAgent : IIntake
             Arguments = [new KeyValuePair<string, string>("ticketId", ticketId)],
         };
 
-        try
-        {
-            return await ExtractOnceAsync(call, ct).ConfigureAwait(false);
-        }
-        catch (AgentException error)
-        {
-            // Hand the failure back as an argument. Every call is a fresh
-            // two-message request, so what the model is reacting to is exactly
-            // what is on this line rather than a conversation that drifted.
-            var repair = call with
-            {
-                Operation = call.Operation + " (repair)",
-                Arguments =
-                [
-                    .. call.Arguments,
-                    new KeyValuePair<string, string>("previousAttemptFailed", error.Message),
-                ],
-            };
+        var attempt = await ExtractOnceAsync(call, ct).ConfigureAwait(false);
+        if (attempt.Succeeded) return attempt.Value;
 
-            return await ExtractOnceAsync(repair, ct).ConfigureAwait(false);
-        }
+        // Hand the failure back as an argument. Every call is a fresh
+        // two-message request, so what the model is reacting to is exactly what
+        // is on this line rather than a conversation that drifted.
+        var repair = call with
+        {
+            Operation = call.Operation + " (repair)",
+            Arguments =
+            [
+                .. call.Arguments,
+                new KeyValuePair<string, string>("previousAttemptFailed", attempt.Problem!),
+            ],
+        };
+
+        // The second attempt throws if it fails too. A model that has missed
+        // the same schema twice is not going to get it on the third, and the
+        // caller waiting on an answer should hear that rather than a third bill.
+        return await _router.For(IntakeRoles.Accurate)
+            .CompleteJsonWithToolsAsync(repair, ExtractContract.Instance, _tools, _authorizer, 12, ct)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
-    /// One attempt, so the repair can retry exactly the same call.
+    /// One attempt, reported rather than thrown.
     /// </summary>
     /// <remarks>
-    /// No <c>[RequiresUnreferencedCode]</c> and nothing suppressed. The
-    /// contract carries a <c>JsonTypeInfo</c> from a source-generated
-    /// <c>JsonSerializerContext</c> and checks its own values, so there is no
-    /// reflection on this path for an annotation to warn about.
+    /// A model answering <c>urgency: 9</c> against a declared 1–5 has not
+    /// malfunctioned — it has done something this method anticipates and
+    /// handles. Treating that as an exception made every ordinary run report a
+    /// first-chance exception in a debugger, which reads as a failure and is
+    /// not one. <c>if (attempt.Succeeded)</c> says "this may not have worked";
+    /// <c>try</c>/<c>catch</c> says "this went wrong".
     /// </remarks>
-    private Task<Extract> ExtractOnceAsync(AgentCall call, CancellationToken ct) =>
+    private Task<ReplyAttempt<Extract>> ExtractOnceAsync(AgentCall call, CancellationToken ct) =>
         _router.For(IntakeRoles.Accurate)
-            .CompleteJsonWithToolsAsync(call, ExtractContract.Instance, _tools, _authorizer, 12, ct);
+            .TryCompleteJsonWithToolsAsync(call, ExtractContract.Instance, _tools, _authorizer, 12, ct);
 }
 
 /// <summary>

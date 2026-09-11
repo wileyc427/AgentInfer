@@ -83,6 +83,91 @@ public sealed class ReplyContractTests
     }
 
     [Fact]
+    public async Task An_anticipated_failure_is_reported_rather_than_thrown()
+    {
+        var runner = new AgentRunner(new FakeChatClient("""{"value":100,"reason":"great"}"""));
+
+        var attempt = await runner.TryCompleteJsonAsync(Call(), ScoreContract.Instance, Ct);
+
+        // A model answering out of range has not malfunctioned — it has done
+        // something the caller anticipates and handles. Throwing made every
+        // ordinary run report a first-chance exception in a debugger.
+        Assert.False(attempt.Succeeded);
+        Assert.Contains("between 1 and 5", attempt.Problem);
+        Assert.Contains("100", attempt.Problem);
+    }
+
+    [Fact]
+    public async Task A_good_reply_comes_back_as_a_value()
+    {
+        var runner = new AgentRunner(new FakeChatClient("""{"value":4,"reason":"ok"}"""));
+
+        var (succeeded, score, problem) = await runner.TryCompleteJsonAsync(Call(), ScoreContract.Instance, Ct);
+
+        Assert.True(succeeded);
+        Assert.Null(problem);
+        Assert.Equal(4, score.Value);
+    }
+
+    [Fact]
+    public async Task The_problem_is_the_sentence_the_exception_would_have_carried()
+    {
+        var reply = """{"value":100,"reason":"great"}""";
+
+        var attempt = await new AgentRunner(new FakeChatClient(reply))
+            .TryCompleteJsonAsync(Call(), ScoreContract.Instance, Ct);
+
+        var thrown = await Assert.ThrowsAsync<AgentException>(
+            () => new AgentRunner(new FakeChatClient(reply))
+                .CompleteJsonAsync(Call(), ScoreContract.Instance, Ct));
+
+        // One binding path, so the two cannot disagree about what counts as a
+        // usable reply or about how an unusable one is described — and the
+        // repair can hand back exactly what the exception would have said.
+        Assert.EndsWith(attempt.Problem, thrown.Message);
+    }
+
+    [Fact]
+    public async Task Reading_a_failed_attempt_says_what_went_wrong()
+    {
+        var attempt = await new AgentRunner(new FakeChatClient("""{"value":100,"reason":"x"}"""))
+            .TryCompleteJsonAsync(Call(), ScoreContract.Instance, Ct);
+
+        var error = Assert.Throws<InvalidOperationException>(() => attempt.Value);
+        Assert.Contains("between 1 and 5", error.Message);
+    }
+
+    [Fact]
+    public async Task A_transport_failure_still_throws()
+    {
+        // Not an outcome the model produced, so nothing is gained by making
+        // every caller check for it.
+        var runner = new AgentRunner(new ThrowingClient());
+
+        await Assert.ThrowsAsync<HttpRequestException>(
+            () => runner.TryCompleteJsonAsync(Call(), ScoreContract.Instance, Ct));
+    }
+
+    private sealed class ThrowingClient : Microsoft.Extensions.AI.IChatClient
+    {
+        public Task<Microsoft.Extensions.AI.ChatResponse> GetResponseAsync(
+            IEnumerable<Microsoft.Extensions.AI.ChatMessage> messages,
+            Microsoft.Extensions.AI.ChatOptions? options = null,
+            CancellationToken ct = default) =>
+            throw new HttpRequestException("connection refused");
+
+        public IAsyncEnumerable<Microsoft.Extensions.AI.ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<Microsoft.Extensions.AI.ChatMessage> messages,
+            Microsoft.Extensions.AI.ChatOptions? options = null,
+            CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
+    }
+
+    [Fact]
     public async Task A_schema_on_the_call_and_a_contract_is_refused()
     {
         var runner = new AgentRunner(new FakeChatClient("""{"value":4,"reason":"ok"}"""));
