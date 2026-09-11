@@ -58,7 +58,7 @@ public interface ILedgerAnalyst
     /// </remarks>
     [Prompt("Which categories are over budget, and by how much?")]
     [Strategy(Strategies.Predict, MaxIterations = 16)]
-    [Model(ModelRoles.Accurate)]
+    [Model(ModelRoles.SmallLlm)]
     public Task<string> SummariseAsync(CancellationToken ct = default);
 
     /// <summary>

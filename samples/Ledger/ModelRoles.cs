@@ -23,5 +23,5 @@ namespace Ledger;
 public static class ModelRoles
 {
     /// <summary>Reasoning over figures. Worth a larger model.</summary>
-    public const string Accurate = "accurate";
+    public const string SmallLlm = "smallllm";
 }
