@@ -55,7 +55,7 @@ internal static class Model
             source = "default (no credential set)";
         }
 
-        model ??= endpoint == OllamaEndpoint ? "qwen3:8b" : "gpt-5-mini";
+        model ??= endpoint == OllamaEndpoint ? "qwen3:latest" : "gpt-5-mini";
 
         // Ollama rejects requests carrying a real key and requires a non-empty
         // one, so a placeholder is the correct value rather than a hack.
