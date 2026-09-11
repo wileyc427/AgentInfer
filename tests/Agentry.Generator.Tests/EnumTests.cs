@@ -220,6 +220,6 @@ public sealed class EnumTests
 
         // A set offered as a choice of one invites "Read, Write", which reads
         // correctly and binds to nothing.
-        Assert.Contains(diagnostics, d => d.Id == "AGT008");
+        Assert.Contains(diagnostics, d => d.Id == "AGT011");
     }
 }

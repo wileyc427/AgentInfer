@@ -66,7 +66,7 @@ constant — see [Prompts in files](#prompts-in-files).
 | `AGT005` Unsupported tool parameter | a model sending a shape the parameter cannot take, learned from a trace |
 | `AGT006` Tool requires `[RequiresPermission]` | `@hidden`, which keeps a method out of the docs and leaves it callable |
 | `AGT007` `[Model]` requires a role | an empty role, which presents as a missing registration somewhere else |
-| `AGT008` Flags enum has no schema | `"Read, Write"` — a reply that reads correctly and binds to nothing |
+| `AGT011` Flags enum has no schema | `"Read, Write"` — a reply that reads correctly and binds to nothing |
 | `AGT007` `[Model]` requires a non-empty role | a role that silently resolves to nothing and routes to the default model |
 | `AGT008` Prompt file is not in `AdditionalFiles` | a prompt file the compiler cannot see, sitting visibly in the project |
 | `AGT009` Both a prompt and a `PromptFile` | two sources for one string, one of them stale, neither obviously the winner |

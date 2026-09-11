@@ -28,6 +28,9 @@ var configuration = new ConfigurationBuilder()
 
 var section = configuration.GetSection("Agentry");
 
+string EndpointOf(string provider) =>
+    section[$"Providers:{provider}:Endpoint"] ?? "http://localhost:11434/v1";
+
 using var logs = LoggerFactory.Create(builder => builder
     .SetMinimumLevel(LogLevel.Warning)
     .AddSimpleConsole(options => options.SingleLine = true));
@@ -36,7 +39,12 @@ using var logs = LoggerFactory.Create(builder => builder
 // rejecting once and then approving needs the same object both times.
 var rehearsal = new Rehearsal();
 
-IChatClient ClientFor(string model) => live ? Live(model) : rehearsal;
+// The library resolves a role to a ModelBinding — a model name and the
+// provider it lives on — and hands it over. Building the client is
+// provider-specific and stays here, which is why the factory is a lambda
+// rather than a configuration key.
+IChatClient ClientFor(ModelBinding binding) =>
+    live ? Live(binding.Model, binding.Provider.Endpoint, binding.Provider.ApiKey) : rehearsal;
 
 var services = new ServiceCollection();
 services.AddSingleton<ILoggerFactory>(logs);
@@ -45,15 +53,20 @@ services.AddLogging();
 // ValidateRoles fails here, at startup, if a role the code asks for has no
 // model configured — rather than on the first request that needs it. The array
 // is generated from the [Model] attributes actually present.
-services
-    .AddAgentryModels(configuration, (model, _) => ClientFor(model))
+var agentry = services
+    .AddAgentryModels(configuration, (binding, _) => ClientFor(binding))
     .ValidateRoles(AgentryRoles.All);
 
 var provider = services.BuildServiceProvider();
 var router = provider.GetRequiredService<IModelRouter>();
 
+// Methods with no [Model] use this one.
 var runner = new AgentRunner(
-    ClientFor(section["DefaultModel"] ?? "qwen3:latest"),
+    live
+        ? Live(section["DefaultModel"] ?? "qwen3:latest",
+               EndpointOf(section["DefaultProvider"] ?? "local"),
+               null)
+        : rehearsal,
     logs.CreateLogger<AgentRunner>());
 
 // This caller may read telemetry. It may not restart a service and it may not
@@ -81,7 +94,23 @@ const string Alert =
     "checkout-api 5xx rate above 40% for 12 minutes; payments p99 latency 12s. "
     + "Started 02:10 UTC. Customers report failed orders.";
 
-Console.WriteLine(live ? $"model: {section["Endpoint"]}\n" : "model: scripted (pass --live for a real one)\n");
+if (live)
+{
+    // Which model each method will actually reach, and from where. A run that
+    // does not say this is a run you cannot argue with when the answer looks
+    // wrong.
+    Console.WriteLine($"default:  {section["DefaultModel"]} at {EndpointOf(section["DefaultProvider"] ?? "local")}");
+    foreach (var (role, binding) in agentry.Models)
+    {
+        Console.WriteLine($"role {role}: {binding.Model} at {binding.Provider.Endpoint}");
+    }
+
+    Console.WriteLine();
+}
+else
+{
+    Console.WriteLine("model: scripted (pass --live for a real one)\n");
+}
 
 var offered = new ServiceInvestigatorAgentTools(telemetry).AvailableTo(caller);
 Console.WriteLine(
@@ -145,18 +174,14 @@ catch (Exception error)
 
 return 0;
 
-IChatClient Live(string model)
-{
-    var key = section["ApiKey"]
-              ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY")
-              ?? "ollama";   // Ollama rejects a real key and requires a non-empty one.
-
-    return new OpenAIClient(
-            new ApiKeyCredential(key),
-            new OpenAIClientOptions { Endpoint = new Uri(section["Endpoint"] ?? "http://localhost:11434/v1") })
+IChatClient Live(string model, string endpoint, string? apiKey) =>
+    new OpenAIClient(
+            // Ollama rejects a real key and requires a non-empty one, so the
+            // placeholder is the correct value rather than a hack.
+            new ApiKeyCredential(apiKey ?? "ollama"),
+            new OpenAIClientOptions { Endpoint = new Uri(endpoint) })
         .GetChatClient(model)
         .AsIChatClient();
-}
 
 /// <summary>Turns a transport failure into one readable line.</summary>
 static string Explain(Exception error)
