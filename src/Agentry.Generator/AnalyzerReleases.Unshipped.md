@@ -15,6 +15,7 @@ AGT003  | Agentry  | Error    | Unsupported return type; must be Task<T>
 AGT004  | Agentry  | Error    | CodeAct is not implemented (P3)
 AGT005  | Agentry  | Error    | Unsupported tool parameter type
 AGT006  | Agentry  | Warning  | [AgentTool] requires [RequiresPermission]
-AGT007  | Agentry  | Error    | PromptFile is not in AdditionalFiles
-AGT008  | Agentry  | Error    | Both a prompt and a PromptFile were set
-AGT009  | Agentry  | Error    | PromptFile matches more than one AdditionalFiles entry
+AGT007  | Agentry  | Error    | [Model] requires a non-empty role
+AGT008  | Agentry  | Error    | PromptFile is not in AdditionalFiles
+AGT009  | Agentry  | Error    | Both a prompt and a PromptFile were set
+AGT010  | Agentry  | Error    | PromptFile matches more than one AdditionalFiles entry

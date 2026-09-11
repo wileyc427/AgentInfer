@@ -84,11 +84,11 @@ public sealed class PromptFileTests
     /// the compiler cannot see it, because AdditionalFiles is opt-in.
     /// </summary>
     [Fact]
-    public void A_file_outside_AdditionalFiles_is_AGT007() =>
-        Assert.Contains("AGT007", Ids(Agent, [], projectDirectory: "/repo/app/"));
+    public void A_file_outside_AdditionalFiles_is_AGT008() =>
+        Assert.Contains("AGT008", Ids(Agent, [], projectDirectory: "/repo/app/"));
 
     [Fact]
-    public void AGT007_carries_the_line_to_paste()
+    public void AGT008_carries_the_line_to_paste()
     {
         var diagnostic = GeneratorHarness.Run(Agent, [], "/repo/app/").Diagnostics.Single();
 
@@ -102,8 +102,8 @@ public sealed class PromptFileTests
     /// can tell which — so neither wins.
     /// </summary>
     [Fact]
-    public void A_prompt_and_a_prompt_file_together_is_AGT008() =>
-        Assert.Contains("AGT008", Ids(
+    public void A_prompt_and_a_prompt_file_together_is_AGT009() =>
+        Assert.Contains("AGT009", Ids(
             """
             using System.Threading.Tasks;
             using Agentry;
@@ -122,8 +122,8 @@ public sealed class PromptFileTests
     /// asks for one rather than matching by suffix when it can help it.
     /// </summary>
     [Fact]
-    public void A_name_matching_two_files_is_AGT009() =>
-        Assert.Contains("AGT009", Ids(
+    public void A_name_matching_two_files_is_AGT010() =>
+        Assert.Contains("AGT010", Ids(
             Agent,
             [
                 ("/repo/app/v1/Prompts/thing.md", "One."),
@@ -132,12 +132,12 @@ public sealed class PromptFileTests
 
     /// <summary>
     /// With the project directory known, the same two files are unambiguous:
-    /// neither is at the path the agent named, so this is AGT007 and not a
+    /// neither is at the path the agent named, so this is AGT008 and not a
     /// coin toss between them.
     /// </summary>
     [Fact]
     public void A_project_directory_resolves_what_suffix_matching_cannot() =>
-        Assert.Contains("AGT007", Ids(
+        Assert.Contains("AGT008", Ids(
             Agent,
             [
                 ("/repo/app/v1/Prompts/thing.md", "One."),

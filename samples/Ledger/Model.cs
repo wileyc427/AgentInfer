@@ -1,71 +1,59 @@
 using System.ClientModel;
 
+using Agentry;
+
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
 
 using OpenAI;
 
 namespace Ledger;
 
 /// <summary>
-/// Turns whatever is in the environment into one <see cref="IChatClient"/>.
+/// Builds chat clients from a resolved <see cref="ModelBinding"/>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// One provider package, not one per provider. OpenAI, Ollama, vLLM and every
-/// other OpenAI-shaped endpoint differ only by base address and key, so the
-/// endpoint is the configuration and the rest is the same code.
+/// One provider package covers OpenAI, Ollama, vLLM and anything else speaking
+/// the OpenAI wire format, because they differ only by base address and key. A
+/// provider that needed a different SDK would be a second branch here, which is
+/// exactly where that decision belongs — the library hands over the binding and
+/// stays out of it.
 /// </para>
 /// <para>
-/// Every resolved value is reported with <b>the setting that produced it</b>.
-/// That is not decoration: on the Python side a stale <c>OLLAMA_HOST</c> sent
-/// every request to a machine that was not running anything while the local
-/// daemon was fine, and the log said only that the connection failed. An
-/// address printed without its provenance is one you cannot argue with.
+/// <b>No credential is in appsettings.json</b> and the file has no field for
+/// one. Configuration names <em>where</em> the key lives
+/// (<c>ApiKeyVariable</c>); the value comes from the environment. A committed
+/// file with a key-shaped field is a file somebody eventually puts a real key
+/// in.
 /// </para>
 /// </remarks>
-internal static class Model
+internal sealed class Models(IConfiguration configuration)
 {
-    private const string OllamaEndpoint = "http://localhost:11434/v1";
+    private readonly IConfigurationSection _section = configuration.GetSection("Agentry");
 
-    public static (IChatClient Client, string Description) Resolve()
-    {
-        var model = Environment.GetEnvironmentVariable("AGENTRY_MODEL");
-        var endpoint = Environment.GetEnvironmentVariable("AGENTRY_ENDPOINT");
-        var key = Environment.GetEnvironmentVariable("AGENTRY_API_KEY")
-                  ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+    /// <summary>The model used by methods that ask for no particular role.</summary>
+    public string DefaultModel => _section["DefaultModel"] ?? "qwen3:latest";
 
-        string source;
+    public string DefaultProvider => _section["DefaultProvider"] ?? "local";
 
-        if (endpoint is not null)
-        {
-            source = "AGENTRY_ENDPOINT";
-        }
-        else if (key is not null)
-        {
-            endpoint = "https://api.openai.com/v1";
-            source = "OPENAI_API_KEY present";
-        }
-        else
-        {
-            // No key means a local model, and local means Ollama's
-            // OpenAI-compatible surface. Note the /v1: it is present here and
-            // absent from Ollama's native API, and getting it backwards is a
-            // 404 from the server rather than an error from the client.
-            endpoint = OllamaEndpoint;
-            source = "default (no credential set)";
-        }
+    public string EndpointOf(string provider) =>
+        _section[$"Providers:{provider}:Endpoint"] ?? "http://localhost:11434/v1";
 
-        model ??= endpoint == OllamaEndpoint ? "qwen3:8b" : "gpt-5-mini";
+    /// <summary>A client for a role the library resolved.</summary>
+    public IChatClient For(ModelBinding binding) =>
+        Build(binding.Model, binding.Provider.Endpoint, binding.Provider.ApiKey);
 
-        // Ollama rejects requests carrying a real key and requires a non-empty
-        // one, so a placeholder is the correct value rather than a hack.
-        var credential = new ApiKeyCredential(key ?? "ollama");
-        var options = new OpenAIClientOptions { Endpoint = new Uri(endpoint) };
+    /// <summary>A client for the default runner, which has no role.</summary>
+    public IChatClient Default() =>
+        Build(DefaultModel, EndpointOf(DefaultProvider), null);
 
-        var client = new OpenAIClient(credential, options)
+    private static IChatClient Build(string model, string endpoint, string? apiKey) =>
+        new OpenAIClient(
+                // Ollama rejects a real key and requires a non-empty one, so the
+                // placeholder is the correct value rather than a hack.
+                new ApiKeyCredential(apiKey ?? "ollama"),
+                new OpenAIClientOptions { Endpoint = new Uri(endpoint) })
             .GetChatClient(model)
             .AsIChatClient();
-
-        return (client, $"{model} at {endpoint} ({source})");
-    }
 }

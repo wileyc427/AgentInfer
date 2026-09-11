@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
@@ -69,7 +70,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         using var activity = Source.StartActivity(call.Operation);
         var started = Stopwatch.GetTimestamp();
 
-        var response = await _client.GetResponseAsync(Build(call, json: true), cancellationToken: ct)
+        var response = await _client.GetResponseAsync(Build(call, json: true), FormatFor(call), ct)
             .ConfigureAwait(false);
 
         var text = response.Text ?? string.Empty;
@@ -85,8 +86,11 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     {
         try
         {
-            var value = JsonSerializer.Deserialize<T>(Unfence(text), options ?? JsonSerializerOptions.Web);
-            return value ?? throw new AgentException(call.Operation, "the model returned JSON null");
+            var value = JsonSerializer.Deserialize<T>(Unfence(text), options ?? AgentJson.Binding);
+            if (value is null) throw new AgentException(call.Operation, "the model returned JSON null");
+
+            Validate(call, value, text);
+            return value;
         }
         catch (JsonException error)
         {
@@ -98,9 +102,12 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
                   + "Smaller models resolve that by writing the calls out as text."
                 : string.Empty;
 
+            // The JsonException already says which property was missing or
+            // null — the single most useful sentence available — and dropping
+            // it left "could not bind", which sends you to the wrong place.
             throw new AgentException(
                 call.Operation,
-                $"could not bind the reply to {typeof(T).Name}.{hint} Reply was: {Trim(text)}",
+                $"could not bind the reply to {typeof(T).Name}. {error.Message}{hint} Reply was: {Trim(text)}",
                 error);
         }
     }
@@ -189,15 +196,13 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         var text = await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, started, ct)
             .ConfigureAwait(false);
 
-        var binding = new AgentCall
+        var binding = call with
         {
-            SystemPrompt = call.SystemPrompt,
-            TaskPrompt = call.TaskPrompt,
             Operation = call.Operation + " (bind)",
             Arguments = [new KeyValuePair<string, string>("answer", text)],
         };
 
-        var reply = await _client.GetResponseAsync(Build(binding, json: true), cancellationToken: ct)
+        var reply = await _client.GetResponseAsync(Build(binding, json: true), FormatFor(binding), ct)
             .ConfigureAwait(false);
 
         return Bind<T>(call, reply.Text ?? string.Empty, options);
@@ -274,6 +279,39 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
             log);
     }
 
+    /// <summary>
+    /// Options that ask the provider to enforce the shape, where it can.
+    /// </summary>
+    /// <remarks>
+    /// Belt and braces with the schema in the prompt, because the two fail in
+    /// different places: a provider that ignores response_format still sees the
+    /// prompt, and a model that ignores the prompt is still constrained by the
+    /// provider. Neither alone was enough in practice.
+    /// </remarks>
+    private static ChatOptions? FormatFor(AgentCall call)
+    {
+        if (call.ResponseSchema.Length == 0) return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(call.ResponseSchema);
+
+            return new ChatOptions
+            {
+                ResponseFormat = ChatResponseFormat.ForJsonSchema(
+                    document.RootElement.Clone(),
+                    schemaName: "result"),
+            };
+        }
+        catch (JsonException)
+        {
+            // A schema the generator emitted should always parse. If it somehow
+            // does not, the prompt still carries it — degrade rather than fail
+            // a call over the belt when the braces are on.
+            return null;
+        }
+    }
+
     private static ChatMessage[] Build(AgentCall call, bool json)
     {
         var user = new StringBuilder(call.TaskPrompt);
@@ -285,11 +323,16 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
 
         if (json)
         {
-            // Belt and braces alongside whatever structured-output support the
-            // provider has: local models in particular will happily wrap JSON in
-            // a markdown fence regardless of what they were asked for, which is
-            // what Unfence exists for.
             user.Append("\n\nReply with JSON only. No prose, no markdown fence.");
+
+            // The shape, not just the format. Without this a model is told to
+            // reply with JSON and left to guess which JSON — a real run answered
+            // {"supported": true} to a Verdict(bool, int, string[]), which is a
+            // reasonable invention given nothing to go on.
+            if (call.ResponseSchema.Length > 0)
+            {
+                user.Append("\n\nIt must match this JSON Schema exactly:\n").Append(call.ResponseSchema);
+            }
         }
 
         return
@@ -311,6 +354,40 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         var body = trimmed[(firstNewline + 1)..];
         var fence = body.LastIndexOf("```", StringComparison.Ordinal);
         return (fence < 0 ? body : body[..fence]).Trim();
+    }
+
+    /// <summary>
+    /// Checks DataAnnotations on a bound reply.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Binding proves the shape; this proves the values. A real run answered
+    /// <c>score: 100</c> for a field meant to be 1–5 and bound cleanly, because
+    /// 100 is a perfectly good integer. The schema now carries the bound and
+    /// tells the model, and this is the half that does not depend on the model
+    /// having listened.
+    /// </para>
+    /// <para>
+    /// The failure names the property and the rule, and quotes the reply, for
+    /// the same reason the bind failure does: the useful thing is what the model
+    /// actually said.
+    /// </para>
+    /// </remarks>
+    [RequiresUnreferencedCode("DataAnnotations validation walks the type with reflection.")]
+    private static void Validate<T>(AgentCall call, T value, string text)
+    {
+        var results = new List<ValidationResult>();
+
+        if (Validator.TryValidateObject(value!, new ValidationContext(value!), results, validateAllProperties: true))
+        {
+            return;
+        }
+
+        var problems = string.Join("; ", results.Select(r => r.ErrorMessage));
+
+        throw new AgentException(
+            call.Operation,
+            $"the reply bound to {typeof(T).Name} but failed validation: {problems}. Reply was: {Trim(text)}");
     }
 
     /// <summary>

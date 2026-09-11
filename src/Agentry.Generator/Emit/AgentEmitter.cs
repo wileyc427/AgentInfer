@@ -72,6 +72,15 @@ internal static class AgentEmitter
             code.AppendLine("    private readonly global::Agentry.IToolAuthorizer _authorizer;");
         }
 
+        // Only when some method asks for a role. The common case stays one
+        // dependency, and a router in a constructor is then a signal that this
+        // agent genuinely spans models rather than boilerplate to skim past.
+        var routed = model.Methods.Any(m => m.ModelRole is not null);
+        if (routed)
+        {
+            code.AppendLine("    private readonly global::Agentry.IModelRouter _router;");
+        }
+
         code.AppendLine();
         code.Append("    public ").Append(model.ImplementationName)
             .Append("(global::Agentry.AgentRunner runner");
@@ -82,6 +91,11 @@ internal static class AgentEmitter
                 .Append(", global::Agentry.IToolAuthorizer authorizer");
         }
 
+        if (routed)
+        {
+            code.Append(", global::Agentry.IModelRouter router");
+        }
+
         code.AppendLine(")");
         code.AppendLine("    {");
         code.AppendLine("        _runner = runner;");
@@ -90,6 +104,11 @@ internal static class AgentEmitter
         {
             code.AppendLine("        _tools = tools;");
             code.AppendLine("        _authorizer = authorizer;");
+        }
+
+        if (routed)
+        {
+            code.AppendLine("        _router = router;");
         }
 
         code.AppendLine("    }");
@@ -186,6 +205,15 @@ internal static class AgentEmitter
         code.AppendLine("            SystemPrompt = SystemPrompt,");
         code.Append("            TaskPrompt = ").Append(Literal(method.TaskPrompt)).AppendLine(",");
         code.Append("            Operation = ").Append(Literal(method.Name)).AppendLine(",");
+
+        if (method.ReturnSchema.Length > 0)
+        {
+            // The shape the model must produce, as a literal. This is the other
+            // half of "schemas at compile time" — parameters had one and return
+            // types did not, so a model was told to reply with JSON and left to
+            // guess which JSON.
+            code.Append("            ResponseSchema = ").Append(Literal(method.ReturnSchema)).AppendLine(",");
+        }
         code.AppendLine("            Arguments = new global::System.Collections.Generic.KeyValuePair<string, string>[]");
         code.AppendLine("            {");
 
@@ -212,10 +240,17 @@ internal static class AgentEmitter
         // nobody would guess.
         var tools = hasTools ? $", _tools, _authorizer, {method.MaxIterations}" : string.Empty;
 
+        // Resolved per call rather than cached, so a router backed by scoped DI
+        // behaves. Roles are a handful of registrations; the lookup is a
+        // dictionary hit next to a model round trip.
+        var runner = method.ModelRole is { } role
+            ? $"_router.For({Literal(role)})"
+            : "_runner";
+
         if (method.Shape == ReturnShape.Text)
         {
             var name = hasTools ? "CompleteWithToolsAsync" : "CompleteTextAsync";
-            code.Append("        return await _runner.").Append(name).Append("(call")
+            code.Append("        return await ").Append(runner).Append('.').Append(name).Append("(call")
                 .Append(tools).Append(", ").Append(ct).AppendLine(").ConfigureAwait(false);");
         }
         else
@@ -224,13 +259,13 @@ internal static class AgentEmitter
 
             if (hasTools)
             {
-                code.Append("        return await _runner.CompleteJsonWithToolsAsync<").Append(method.ReturnType)
+                code.Append("        return await ").Append(runner).Append(".CompleteJsonWithToolsAsync<").Append(method.ReturnType)
                     .Append(">(call").Append(tools).Append(", null, ").Append(ct)
                     .AppendLine(").ConfigureAwait(false);");
             }
             else
             {
-                code.Append("        return await _runner.CompleteJsonAsync<").Append(method.ReturnType)
+                code.Append("        return await ").Append(runner).Append(".CompleteJsonAsync<").Append(method.ReturnType)
                     .Append(">(call, null, ").Append(ct).AppendLine(").ConfigureAwait(false);");
             }
 

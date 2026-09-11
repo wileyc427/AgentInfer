@@ -98,6 +98,104 @@ public sealed class AgentRunnerTests
         Assert.Equal("IThing.DoAsync", error.Operation);
     }
 
+    private sealed record Report(bool Approved, int Score, string[] Problems);
+
+    private const string ReportSchema =
+        """{"type":"object","properties":{"approved":{"type":"boolean"}},"required":["approved"],"additionalProperties":false}""";
+
+    private sealed record Scored(bool Approved, [property: System.ComponentModel.DataAnnotations.Range(1, 5)] int Score);
+
+    [Fact]
+    public async Task A_value_outside_its_declared_range_is_refused_after_binding()
+    {
+        // The shape was right and it bound. A real run answered score: 100 out
+        // of five and nothing objected, because 100 is a perfectly good integer.
+        var runner = new AgentRunner(new FakeChatClient("""{"approved":true,"score":100}"""));
+
+        var error = await Assert.ThrowsAsync<AgentException>(
+            () => runner.CompleteJsonAsync<Scored>(Call(), ct: Ct));
+
+        Assert.Contains("failed validation", error.Message);
+        Assert.Contains("Score", error.Message);
+        // The reply is quoted, for the same reason the bind failure quotes it.
+        Assert.Contains("100", error.Message);
+    }
+
+    [Fact]
+    public async Task A_value_inside_its_range_still_binds()
+    {
+        var runner = new AgentRunner(new FakeChatClient("""{"approved":true,"score":4}"""));
+        Assert.Equal(4, (await runner.CompleteJsonAsync<Scored>(Call(), ct: Ct)).Score);
+    }
+
+    [Fact]
+    public async Task The_model_is_told_the_shape_not_only_the_format()
+    {
+        var client = new FakeChatClient("""{"approved":true,"score":4,"problems":[]}""");
+
+        await new AgentRunner(client).CompleteJsonAsync<Report>(
+            Call() with { ResponseSchema = ReportSchema }, ct: Ct);
+
+        // "Reply with JSON" alone left a model guessing which JSON; a real run
+        // answered {"supported": true} to a three-field record.
+        Assert.Contains(ReportSchema, client.Received![1].Text);
+    }
+
+    [Fact]
+    public async Task The_provider_is_asked_to_enforce_the_shape_as_well()
+    {
+        var client = new FakeChatClient("""{"approved":true,"score":4,"problems":[]}""");
+
+        await new AgentRunner(client).CompleteJsonAsync<Report>(
+            Call() with { ResponseSchema = ReportSchema }, ct: Ct);
+
+        // Both, because they fail in different places: a provider that ignores
+        // response_format still sees the prompt, and a model that ignores the
+        // prompt is still constrained by the provider.
+        Assert.IsType<Microsoft.Extensions.AI.ChatResponseFormatJson>(client.LastOptions?.ResponseFormat);
+    }
+
+    [Fact]
+    public async Task A_text_call_asks_the_provider_for_no_particular_format()
+    {
+        var client = new FakeChatClient("fine");
+        await new AgentRunner(client).CompleteTextAsync(Call(), Ct);
+
+        Assert.Null(client.LastOptions?.ResponseFormat);
+    }
+
+    [Fact]
+    public async Task A_missing_property_is_an_error_at_the_boundary_not_a_null_three_frames_later()
+    {
+        // This exact reply, to this exact record, produced a Report with null in
+        // the non-nullable Problems slot — and a NullReferenceException in the
+        // caller's foreach, several lines from the cause. Task<Report> has to
+        // mean a Report.
+        var runner = new AgentRunner(new FakeChatClient("""{"approved":false,"score":0}"""));
+
+        var error = await Assert.ThrowsAsync<AgentException>(
+            () => runner.CompleteJsonAsync<Report>(Call(), ct: Ct));
+
+        Assert.Contains("problems", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task An_explicit_null_in_a_non_nullable_slot_is_refused_too()
+    {
+        var runner = new AgentRunner(new FakeChatClient("""{"approved":true,"score":4,"problems":null}"""));
+        await Assert.ThrowsAsync<AgentException>(() => runner.CompleteJsonAsync<Report>(Call(), ct: Ct));
+    }
+
+    [Fact]
+    public async Task A_complete_reply_still_binds()
+    {
+        var runner = new AgentRunner(new FakeChatClient("""{"approved":true,"score":4,"problems":[]}"""));
+        var report = await runner.CompleteJsonAsync<Report>(Call(), ct: Ct);
+
+        Assert.True(report.Approved);
+        Assert.Empty(report.Problems);
+    }
+
     [Fact]
     public async Task Json_null_is_an_error_rather_than_a_null_reference_later()
     {

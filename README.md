@@ -65,9 +65,10 @@ constant — see [Prompts in files](#prompts-in-files).
 | `AGT004` CodeAct is not implemented | an undecorated method silently executing generated code |
 | `AGT005` Unsupported tool parameter | a model sending a shape the parameter cannot take, learned from a trace |
 | `AGT006` Tool requires `[RequiresPermission]` | `@hidden`, which keeps a method out of the docs and leaves it callable |
-| `AGT007` Prompt file is not in `AdditionalFiles` | a prompt file the compiler cannot see, sitting visibly in the project |
-| `AGT008` Both a prompt and a `PromptFile` | two sources for one string, one of them stale, neither obviously the winner |
-| `AGT009` Prompt file matches more than one entry | a path that names two files and picks one of them quietly |
+| `AGT007` `[Model]` requires a non-empty role | a role that silently resolves to nothing and routes to the default model |
+| `AGT008` Prompt file is not in `AdditionalFiles` | a prompt file the compiler cannot see, sitting visibly in the project |
+| `AGT009` Both a prompt and a `PromptFile` | two sources for one string, one of them stale, neither obviously the winner |
+| `AGT010` Prompt file matches more than one entry | a path that names two files and picks one of them quietly |
 
 Each row is a real failure from building against NOOA, moved from production to
 the build. The corollary is a rule this repo tries to hold: **a feature that
@@ -111,7 +112,7 @@ The compiler only sees files listed in `AdditionalFiles`. The package ships a
 <AgentryPromptFiles>Agents/**/*.prompt</AgentryPromptFiles>
 ```
 
-Anything outside that glob needs a line in the project file, and `AGT007` says
+Anything outside that glob needs a line in the project file, and `AGT008` says
 so with the line to paste. Paths in the attribute are relative to the project
 directory; the generator resolves them against `ProjectDir`, which the SDK
 already makes visible to analyzers.
@@ -236,6 +237,139 @@ verdict: approved=True score=4/5
 `Reclassify` requires `ledger.write`, so it is absent from what the model was
 told — not refused, absent.
 
+## Two methods, two models
+
+```csharp
+[Prompt("Which categories are over budget, and by how much?")]
+[Model("accurate")]
+public Task<string> SummariseAsync(CancellationToken ct = default);
+
+[Prompt("Classify how urgent this request is.")]
+public Task<Urgency> TriageAsync(string request, CancellationToken ct = default);
+```
+
+generates two different call sites in one class:
+
+```csharp
+return await _router.For(@"accurate").CompleteWithToolsAsync(call, …);
+return await _runner.CompleteJsonWithToolsAsync<Urgency>(call, …);
+```
+
+**It names a role, not a model.** `[Model("accurate")]`, never
+`[Model("claude-sonnet-5")]`. A domain assembly should not carry vendor model
+ids: the mapping differs between a laptop and production, changes when a model
+is deprecated, and is configuration rather than design. Same instinct as
+`[RequiresPermission("ledger.read")]` naming a permission rather than a list of
+people.
+
+The router is a constructor dependency **only when some method asks for a
+role**, so the common case stays one dependency and a router in a constructor is
+a signal rather than boilerplate.
+
+### Where a role becomes a model name
+
+Two hops, and the library owns only one. A role resolves to an `AgentRunner`;
+the runner already knows its model, because the `IChatClient` was built with it.
+There is no `"accurate"` → `"claude-sonnet-5"` table inside Agentry — that
+string is deployment configuration.
+
+```json
+{
+  "Agentry": {
+    "DefaultProvider": "local",
+    "Providers": {
+      "local":  { "Endpoint": "http://localhost:11434/v1" },
+      "openai": { "Endpoint": "https://api.openai.com/v1", "ApiKeyVariable": "OPENAI_API_KEY" }
+    },
+    "Models": {
+      "accurate": { "Provider": "openai", "Model": "gpt-5-mini" },
+      "cheap": "qwen3:latest"
+    }
+  }
+}
+```
+
+```csharp
+services.AddAgentryModels(configuration, (binding, sp) => ClientFor(binding))
+        .ValidateRoles(AgentryRoles.All);
+```
+
+**Roles can live on different providers.** A local model for classification and
+a hosted one for the method that has to reason is the point of per-method
+models, and it does not work if every role shares one endpoint.
+
+A role may be a **bare string**, meaning the default provider — most apps have
+one, and making them write an object to say so would be a tax on the common
+case. With exactly one provider configured, `DefaultProvider` is optional too.
+
+`AddAgentryModels` registers one keyed `AgentRunner` per role plus an
+`IModelRouter` over them. Clients are built **lazily and once**, so registering
+ten models opens no connections.
+
+It does not build clients itself. Constructing an `IChatClient` is
+provider-specific — SDK, credential type, options — and a library that guessed
+would be wrong for everyone but its author. The factory receives a
+`ModelBinding` carrying the role, the model and the resolved provider, because a
+model name means nothing without an endpoint: `gpt-5-mini` against a local
+Ollama is a 404 that reads as a missing model rather than a misrouted request.
+
+Four things fail at **registration** rather than on first use: a role with no
+model, a role naming a provider that is not configured, a provider with no
+endpoint, and — with several providers — a role that names none while
+`DefaultProvider` is unset. A provider whose `ApiKeyVariable` is unset is a
+warning, since a key can arrive from somewhere the configuration cannot see.
+
+### The credential is never in the file
+
+`ApiKeyVariable` names the environment variable holding the key. It is not the
+key, and there is no field that is. A committed file with a key-shaped field is
+a file somebody eventually puts a real key in — the same mistake as the
+working-looking IP address in the Python side's example env file, which sent
+every request to a machine that was not running anything.
+
+### Role names without magic strings
+
+Define your own constants and use them in the attribute:
+
+```csharp
+public static class ModelRoles
+{
+    public const string Accurate = "accurate";
+}
+
+[Model(ModelRoles.Accurate)]
+public Task<string> SummariseAsync(CancellationToken ct = default);
+```
+
+`const`, because an attribute argument must be a compile-time constant. A rename
+is then a rename.
+
+**These are yours to define, not generated** — and that is a constraint rather
+than an omission. The generator learns a role *by reading the attribute*, so a
+constant it emitted could not be used in the attribute that produced it. The
+dependency only runs one way.
+
+What *is* generated is `AgentryRoles.All`, the set of roles actually asked for:
+
+```csharp
+internal static class AgentryRoles
+{
+    public static readonly string[] All = ["accurate"];
+}
+```
+
+Your constants make a rename a rename. That array makes a missing registration a
+**startup failure** rather than a request that dies halfway through, minutes
+after deploy, reading as a missing service. A configured role nothing asks for
+is a warning instead — dead configuration is worth noticing and not worth
+refusing to start over.
+
+Why it exists: given the same correct one-call tool result, `qwen3:latest`
+summarised correctly once and answered *"no categories are over budget"* the
+next time — with coffee at 22.80 against a 15.00 budget. Fetching the data was
+never the hard part, so the method that has to reason wants a different model
+from the one that classifies.
+
 ## Measuring whether you need generated code
 
 Every generation method logs what the turn actually cost:
@@ -291,6 +425,62 @@ That is the strongest argument for the instrumentation. The log says
 eight is immediately legible. Without it the only symptom is prose that reads
 fine.
 
+**A typed return was not actually a contract.** A model replied
+`{"approved":false,"score":0}` to a method returning
+`Verdict(bool Approved, int Score, string[] Problems)`. Deserialization produced
+a record with **null** in the non-nullable `Problems` slot, and the caller's
+`foreach` threw a `NullReferenceException` several lines from the cause.
+
+`Task<Verdict>` has to mean a `Verdict`, so binding now sets
+`RespectNullableAnnotations` and `RespectRequiredConstructorParameters`. The
+same reply fails at the boundary with a message naming the missing property and
+quoting what the model said.
+
+**Shape is not the same as meaning.** A later run answered `score: 100` out of
+five and bound cleanly, because 100 is a perfectly good integer.
+`[Range(1, 5)]` now does double duty — it is written into the schema the model
+is given, and it is checked after binding:
+
+```csharp
+public sealed record Verdict(
+    bool Approved,
+    [property: Range(1, 5)] int Score,
+    string[] Problems);
+```
+
+```json
+"score":{"type":"integer","minimum":1,"maximum":5}
+```
+
+`[MaxLength]` becomes `maxLength` on a string and `maxItems` on a collection —
+the same attribute, the right keyword, because a schema the model cannot satisfy
+is as bad as a validator that disagrees with it. DataAnnotations rather than a
+vocabulary of our own: it is already what a .NET developer reaches for.
+
+**The model was never told the schema.** With binding enforced, the next run
+failed with `missing required properties: 'approved', 'score', 'problems'` and
+the reply `{"supported": true}`. Which was a reasonable invention: the JSON path
+said *"reply with JSON only"* and never said **which** JSON. Tool parameters had
+a compile-time schema; return types did not, so the library's central claim was
+half true.
+
+The generator now emits one for the return type as well:
+
+```json
+{"type":"object",
+ "properties":{"approved":{"type":"boolean"},
+               "score":{"type":"integer"},
+               "problems":{"type":"array","items":{"type":"string"}}},
+ "required":["approved","score","problems"],
+ "additionalProperties":false}
+```
+
+camelCased to match `JsonSerializerOptions.Web`, because a schema that disagrees
+with the binder is worse than none — the model obeys it and the bind fails
+anyway. It is used **twice**: set as the provider's `ResponseFormat` where that
+is supported, and written into the prompt where it is not. Both, because they
+fail in different places.
+
 ### The cheaper fix, before reaching for generated code
 
 `Categories` / `TotalFor` / `BudgetFor` is a chatty API: 1 + 2N calls to answer
@@ -302,6 +492,17 @@ designed for a UI, where a caller knows which single row it wants." A model
 asking an open question wants the whole table. Design tools for a caller
 reasoning about all of it at once and the round trips that motivated generated
 code stop existing.
+
+Measured on `qwen3:latest`, same question, same agent:
+
+| Tools offered | Calls | Result |
+| --- | --- | --- |
+| per-category only | 9 | cut off at the bound; confidently wrong |
+| with `Overview` | **1** | "Coffee is over budget by $7.80." — correct |
+
+One call, right answer. That is the case for generated code evaporating on
+contact with a better tool API, and it is why the counting came before the
+decision.
 
 ### One thing the counting revealed
 
@@ -324,6 +525,27 @@ dotnet build
 dotnet test
 dotnet run --project samples/Ledger
 ```
+
+The sample reads `samples/Ledger/appsettings.json`:
+
+```json
+{
+  "Agentry": {
+    "Endpoint": "http://localhost:11434/v1",
+    "DefaultModel": "qwen3:latest",
+    "Models": { "accurate": "qwen3:latest" }
+  }
+}
+```
+
+Point `accurate` at something larger to give `SummariseAsync` a better model
+while everything else stays put. Environment variables layer on top
+(`AGENTRY__MODELS__ACCURATE`), so a run can be redirected without editing a
+committed file.
+
+**No credential lives in that file.** It is committed, and a plausible-looking
+value in a committed file is one somebody pastes a real key over. Keys come from
+the environment or user-secrets.
 
 The sample sets `EmitCompilerGeneratedFiles`, so what the generator produced is
 readable at
