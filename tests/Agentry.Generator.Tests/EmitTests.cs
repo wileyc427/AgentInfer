@@ -231,3 +231,85 @@ public sealed class ConstraintTests
         Assert.Contains(""""maxItems":3"""", GeneratorHarness.Unescaped(output));
     }
 }
+
+/// <summary>
+/// Two methods on one interface, two models.
+/// </summary>
+/// <remarks>
+/// Motivated by a real run: given the same correct one-call tool result,
+/// qwen3:latest summarised correctly once and wrongly the next time. Fetching
+/// the data was never the hard part, so the method that has to reason wants a
+/// different model from the one that classifies.
+/// </remarks>
+public sealed class ModelRoutingTests
+{
+    private const string Source = """
+        using System.Threading.Tasks;
+        using Agentry;
+
+        namespace Demo;
+
+        [Agent("You are terse.")]
+        public interface IAnalyst
+        {
+            [Prompt("Reason about it.")]
+            [Model("accurate")]
+            public Task<string> SummariseAsync();
+
+            [Prompt("Classify it.")]
+            public Task<string> TriageAsync(string request);
+        }
+        """;
+
+    [Fact]
+    public void A_method_with_a_role_resolves_its_own_runner()
+    {
+        var (output, _) = GeneratorHarness.Run(Source);
+        Assert.Contains("""_router.For(@"accurate").CompleteTextAsync""", output);
+    }
+
+    [Fact]
+    public void A_method_without_one_keeps_the_agents_default()
+    {
+        var (output, _) = GeneratorHarness.Run(Source);
+        Assert.Contains("_runner.CompleteTextAsync", output);
+    }
+
+    [Fact]
+    public void The_router_is_a_dependency_only_when_something_asks_for_a_role()
+    {
+        var (routed, _) = GeneratorHarness.Run(Source);
+        Assert.Contains("global::Agentry.IModelRouter router", routed);
+
+        var (plain, _) = GeneratorHarness.Run("""
+            using System.Threading.Tasks;
+            using Agentry;
+            [Agent("You are terse.")]
+            public interface IThing { [Prompt("Do it.")] public Task<string> DoAsync(); }
+            """);
+
+        // The common case stays one dependency, so a router in a constructor is
+        // a signal rather than boilerplate to skim past.
+        Assert.DoesNotContain("IModelRouter", plain);
+    }
+
+    [Fact]
+    public void An_empty_role_is_AGT007()
+    {
+        var (_, diagnostics) = GeneratorHarness.Run("""
+            using System.Threading.Tasks;
+            using Agentry;
+            [Agent("You are terse.")]
+            public interface IThing
+            {
+                [Prompt("Do it.")]
+                [Model("")]
+                public Task<string> DoAsync();
+            }
+            """);
+
+        // An empty role resolves to nothing and presents as a missing
+        // registration, three layers from the attribute that caused it.
+        Assert.Contains(diagnostics, d => d.Id == "AGT007");
+    }
+}

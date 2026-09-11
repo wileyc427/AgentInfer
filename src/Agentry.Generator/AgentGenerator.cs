@@ -40,6 +40,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
     private const string PromptAttribute = "Agentry.PromptAttribute";
     private const string StrategyAttribute = "Agentry.StrategyAttribute";
     private const string AgentToolAttribute = "Agentry.AgentToolAttribute";
+    private const string ModelAttribute = "Agentry.ModelAttribute";
     private const string RequiresPermissionAttribute = "Agentry.RequiresPermissionAttribute";
 
 
@@ -51,6 +52,28 @@ public sealed class AgentGenerator : IIncrementalGenerator
                 predicate: static (node, _) => node is InterfaceDeclarationSyntax,
                 transform: static (ctx, ct) => Transform(ctx, ct))
             .Where(static result => result is not null);
+
+        // Every role any agent declared, as one constant, for startup validation.
+        //
+        // Collect() breaks incrementality for this output — any change re-emits
+        // it — which is acceptable for a file of one array and is the only way
+        // to see the whole compilation at once.
+        context.RegisterSourceOutput(
+            agents.Collect(),
+            static (spc, results) =>
+            {
+                var roles = results
+                    .Where(r => r?.Model is not null)
+                    .SelectMany(r => r!.Model!.Methods)
+                    .Select(m => m.ModelRole)
+                    .Where(role => !string.IsNullOrWhiteSpace(role))
+                    .Select(role => role!)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(role => role, StringComparer.Ordinal)
+                    .ToArray();
+
+                spc.AddSource("AgentryRoles.g.cs", Emit.RolesEmitter.Emit(roles));
+            });
 
         context.RegisterSourceOutput(agents, static (spc, result) =>
         {
@@ -305,6 +328,17 @@ public sealed class AgentGenerator : IIncrementalGenerator
             parameters.Add(new ParameterModel(parameter.Name, type, isString));
         }
 
+        var modelRole = method.GetAttributes()
+            .FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == ModelAttribute)
+            ?.ConstructorArguments.FirstOrDefault().Value as string;
+
+        if (modelRole is not null && string.IsNullOrWhiteSpace(modelRole))
+        {
+            diagnostics.Add(Diagnostic.Create(
+                Diagnostics.EmptyModelRole, Location(method), Display(method)));
+            modelRole = null;
+        }
+
         // Reused for the tool loop, not just CodeAct. A method that can call
         // tools can trade turns with them, and that needs a bound wherever the
         // turns come from.
@@ -324,7 +358,8 @@ public sealed class AgentGenerator : IIncrementalGenerator
             // document containing prose.
             ReturnSchema: shape == ReturnShape.Json
                 ? SchemaWriter.TryWriteReturn(ReturnTypeOf(method)) ?? string.Empty
-                : string.Empty);
+                : string.Empty,
+            ModelRole: modelRole);
     }
 
     private static bool TryReadReturn(ITypeSymbol returnType, out ReturnShape shape, out string type)

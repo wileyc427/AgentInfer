@@ -50,8 +50,15 @@ public interface ILedgerAnalyst
     /// Raised to 16 so the chatty path completes. The better fix is the
     /// Overview tool, which does it in one call — see LedgerTools.
     /// </remarks>
+    /// <remarks>
+    /// On "accurate" because this is the method that has to reason. Given the
+    /// same one-call Overview result, qwen3:latest answered correctly once and
+    /// "no categories are over budget" the next time — with coffee at 22.80
+    /// against a 15.00 budget. Fetching the data was never the hard part.
+    /// </remarks>
     [Prompt("Which categories are over budget, and by how much?")]
     [Strategy(Strategies.Predict, MaxIterations = 16)]
+    [Model(ModelRoles.Accurate)]
     public Task<string> SummariseAsync(CancellationToken ct = default);
 
     /// <summary>

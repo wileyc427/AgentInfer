@@ -95,4 +95,16 @@ internal static class Diagnostics
         category: Category,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
+
+    /// <summary>
+    /// A role has to be something a router can be configured for. An empty one
+    /// resolves to nothing and presents as a missing registration.
+    /// </summary>
+    public static readonly DiagnosticDescriptor EmptyModelRole = new(
+        id: "AGT007",
+        title: "Model requires a role",
+        messageFormat: "'{0}' has [Model] with an empty role. Name what the method needs — \"accurate\", \"cheap\" — not a model id.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }
