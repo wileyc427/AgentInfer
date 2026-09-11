@@ -1,5 +1,7 @@
 using System.ClientModel;
 
+using Agentry;
+
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 
@@ -8,21 +10,22 @@ using OpenAI;
 namespace Ledger;
 
 /// <summary>
-/// Builds chat clients from configuration.
+/// Builds chat clients from a resolved <see cref="ModelBinding"/>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// One provider package covers OpenAI, Ollama, vLLM and anything else speaking
-/// the OpenAI wire format, because all of them differ only by base address and
-/// key. The endpoint is the configuration; the rest is the same code.
+/// the OpenAI wire format, because they differ only by base address and key. A
+/// provider that needed a different SDK would be a second branch here, which is
+/// exactly where that decision belongs — the library hands over the binding and
+/// stays out of it.
 /// </para>
 /// <para>
-/// <b>The credential is not in appsettings.json</b> and should not be. That
-/// file is committed, and a plausible-looking value in a committed file is a
-/// value somebody pastes a real one over — the same mistake as shipping a
-/// working-looking IP in an example env file, which cost an afternoon on the
-/// Python side of this. Keys come from the environment or user-secrets, which
-/// the configuration builder layers on top.
+/// <b>No credential is in appsettings.json</b> and the file has no field for
+/// one. Configuration names <em>where</em> the key lives
+/// (<c>ApiKeyVariable</c>); the value comes from the environment. A committed
+/// file with a key-shaped field is a file somebody eventually puts a real key
+/// in.
 /// </para>
 /// </remarks>
 internal sealed class Models(IConfiguration configuration)
@@ -32,26 +35,25 @@ internal sealed class Models(IConfiguration configuration)
     /// <summary>The model used by methods that ask for no particular role.</summary>
     public string DefaultModel => _section["DefaultModel"] ?? "qwen3:latest";
 
-    public string Endpoint => _section["Endpoint"] ?? "http://localhost:11434/v1";
+    public string DefaultProvider => _section["DefaultProvider"] ?? "local";
 
-    /// <summary>Every configured role, for reporting what this run will use.</summary>
-    public IReadOnlyDictionary<string, string> Roles =>
-        _section.GetSection("Models").GetChildren()
-            .Where(child => !string.IsNullOrWhiteSpace(child.Value))
-            .ToDictionary(child => child.Key, child => child.Value!, StringComparer.Ordinal);
+    public string EndpointOf(string provider) =>
+        _section[$"Providers:{provider}:Endpoint"] ?? "http://localhost:11434/v1";
 
-    public IChatClient For(string model)
-    {
-        // Ollama rejects a real key and requires a non-empty one, so the
-        // placeholder is the correct value rather than a hack.
-        var key = _section["ApiKey"]
-                  ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY")
-                  ?? "ollama";
+    /// <summary>A client for a role the library resolved.</summary>
+    public IChatClient For(ModelBinding binding) =>
+        Build(binding.Model, binding.Provider.Endpoint, binding.Provider.ApiKey);
 
-        return new OpenAIClient(
-                new ApiKeyCredential(key),
-                new OpenAIClientOptions { Endpoint = new Uri(Endpoint) })
+    /// <summary>A client for the default runner, which has no role.</summary>
+    public IChatClient Default() =>
+        Build(DefaultModel, EndpointOf(DefaultProvider), null);
+
+    private static IChatClient Build(string model, string endpoint, string? apiKey) =>
+        new OpenAIClient(
+                // Ollama rejects a real key and requires a non-empty one, so the
+                // placeholder is the correct value rather than a hack.
+                new ApiKeyCredential(apiKey ?? "ollama"),
+                new OpenAIClientOptions { Endpoint = new Uri(endpoint) })
             .GetChatClient(model)
             .AsIChatClient();
-    }
 }

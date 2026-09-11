@@ -17,3 +17,6 @@ AGT005  | Agentry  | Error    | Unsupported tool parameter type
 AGT006  | Agentry  | Warning  | [AgentTool] requires [RequiresPermission]
 AGT007  | Agentry  | Error    | [Model] requires a non-empty role
 AGT008  | Agentry  | Error    | [Flags] enum has no JSON schema
+AGT008  | Agentry  | Error    | PromptFile is not in AdditionalFiles
+AGT009  | Agentry  | Error    | Both a prompt and a PromptFile were set
+AGT010  | Agentry  | Error    | PromptFile matches more than one AdditionalFiles entry
