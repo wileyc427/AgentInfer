@@ -122,28 +122,30 @@ internal static class ToolEmit
 
         var call = $"_tools.{tool.Name}({args})";
 
+        // How the result becomes text was decided in Transform, while the
+        // return type was still a symbol. Emit only places it.
         switch (tool.Return)
         {
             case ToolReturn.None:
                 code.Append("                ").Append(call).AppendLine(";");
                 code.AppendLine("                await global::System.Threading.Tasks.Task.CompletedTask.ConfigureAwait(false);");
-                code.AppendLine("                return \"done\";");
+                code.Append("                return ").Append(tool.Renderer).AppendLine(";");
                 break;
 
             case ToolReturn.AwaitedNone:
                 code.Append("                await ").Append(call).AppendLine(".ConfigureAwait(false);");
-                code.AppendLine("                return \"done\";");
+                code.Append("                return ").Append(tool.Renderer).AppendLine(";");
                 break;
 
             case ToolReturn.AwaitedValue:
                 code.Append("                var result = await ").Append(call).AppendLine(".ConfigureAwait(false);");
-                code.AppendLine("                return global::System.Text.Json.JsonSerializer.Serialize(result);");
+                code.Append("                return ").Append(tool.Renderer).AppendLine(";");
                 break;
 
             default:
                 code.Append("                var result = ").Append(call).AppendLine(";");
                 code.AppendLine("                await global::System.Threading.Tasks.Task.CompletedTask.ConfigureAwait(false);");
-                code.AppendLine("                return global::System.Text.Json.JsonSerializer.Serialize(result);");
+                code.Append("                return ").Append(tool.Renderer).AppendLine(";");
                 break;
         }
 

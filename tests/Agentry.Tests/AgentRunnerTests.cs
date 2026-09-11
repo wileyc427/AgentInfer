@@ -38,7 +38,7 @@ public sealed class AgentRunnerTests
             Arguments = [new KeyValuePair<string, string>("service", "payments")],
         };
 
-        await runner.CompleteJsonWithToolsAsync<Health>(call, new NoTools(), GrantAllTools.Instance, ct: Ct);
+        await runner.CompleteJsonWithToolsReflectivelyAsync<Health>(call, new NoTools(), GrantAllTools.Instance, ct: Ct);
 
         // The second phase is a fresh two-message request, and it used to get
         // only <answer>. A method taking a service name and returning a record
@@ -129,7 +129,7 @@ public sealed class AgentRunnerTests
     public async Task A_typed_return_is_bound_from_json()
     {
         var runner = new AgentRunner(new FakeChatClient("""{"approved":true,"score":4}"""));
-        var verdict = await runner.CompleteJsonAsync<Verdict>(Call(), ct: Ct);
+        var verdict = await runner.CompleteJsonReflectivelyAsync<Verdict>(Call(), ct: Ct);
 
         Assert.True(verdict.Approved);
         Assert.Equal(4, verdict.Score);
@@ -140,7 +140,7 @@ public sealed class AgentRunnerTests
     {
         // Small local models add one regardless of what they were asked for.
         var runner = new AgentRunner(new FakeChatClient("```json\n{\"approved\":false,\"score\":2}\n```"));
-        Assert.False((await runner.CompleteJsonAsync<Verdict>(Call(), ct: Ct)).Approved);
+        Assert.False((await runner.CompleteJsonReflectivelyAsync<Verdict>(Call(), ct: Ct)).Approved);
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public sealed class AgentRunnerTests
     {
         var runner = new AgentRunner(new FakeChatClient("I think it looks fine, honestly."));
 
-        var error = await Assert.ThrowsAsync<AgentException>(() => runner.CompleteJsonAsync<Verdict>(Call(), ct: Ct));
+        var error = await Assert.ThrowsAsync<AgentException>(() => runner.CompleteJsonReflectivelyAsync<Verdict>(Call(), ct: Ct));
 
         // The thing you need when this fires is the reply, not a stack trace.
         Assert.Contains("I think it looks fine", error.Message);
@@ -171,7 +171,7 @@ public sealed class AgentRunnerTests
         var runner = new AgentRunner(new FakeChatClient("""{"approved":true,"score":100}"""));
 
         var error = await Assert.ThrowsAsync<AgentException>(
-            () => runner.CompleteJsonAsync<Scored>(Call(), ct: Ct));
+            () => runner.CompleteJsonReflectivelyAsync<Scored>(Call(), ct: Ct));
 
         Assert.Contains("failed validation", error.Message);
         Assert.Contains("Score", error.Message);
@@ -183,7 +183,7 @@ public sealed class AgentRunnerTests
     public async Task A_value_inside_its_range_still_binds()
     {
         var runner = new AgentRunner(new FakeChatClient("""{"approved":true,"score":4}"""));
-        Assert.Equal(4, (await runner.CompleteJsonAsync<Scored>(Call(), ct: Ct)).Score);
+        Assert.Equal(4, (await runner.CompleteJsonReflectivelyAsync<Scored>(Call(), ct: Ct)).Score);
     }
 
     [Fact]
@@ -191,7 +191,7 @@ public sealed class AgentRunnerTests
     {
         var client = new FakeChatClient("""{"approved":true,"score":4,"problems":[]}""");
 
-        await new AgentRunner(client).CompleteJsonAsync<Report>(
+        await new AgentRunner(client).CompleteJsonReflectivelyAsync<Report>(
             Call() with { ResponseSchema = ReportSchema }, ct: Ct);
 
         // "Reply with JSON" alone left a model guessing which JSON; a real run
@@ -204,7 +204,7 @@ public sealed class AgentRunnerTests
     {
         var client = new FakeChatClient("""{"approved":true,"score":4,"problems":[]}""");
 
-        await new AgentRunner(client).CompleteJsonAsync<Report>(
+        await new AgentRunner(client).CompleteJsonReflectivelyAsync<Report>(
             Call() with { ResponseSchema = ReportSchema }, ct: Ct);
 
         // Both, because they fail in different places: a provider that ignores
@@ -232,7 +232,7 @@ public sealed class AgentRunnerTests
         var runner = new AgentRunner(new FakeChatClient("""{"approved":false,"score":0}"""));
 
         var error = await Assert.ThrowsAsync<AgentException>(
-            () => runner.CompleteJsonAsync<Report>(Call(), ct: Ct));
+            () => runner.CompleteJsonReflectivelyAsync<Report>(Call(), ct: Ct));
 
         Assert.Contains("problems", error.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -241,14 +241,14 @@ public sealed class AgentRunnerTests
     public async Task An_explicit_null_in_a_non_nullable_slot_is_refused_too()
     {
         var runner = new AgentRunner(new FakeChatClient("""{"approved":true,"score":4,"problems":null}"""));
-        await Assert.ThrowsAsync<AgentException>(() => runner.CompleteJsonAsync<Report>(Call(), ct: Ct));
+        await Assert.ThrowsAsync<AgentException>(() => runner.CompleteJsonReflectivelyAsync<Report>(Call(), ct: Ct));
     }
 
     [Fact]
     public async Task A_complete_reply_still_binds()
     {
         var runner = new AgentRunner(new FakeChatClient("""{"approved":true,"score":4,"problems":[]}"""));
-        var report = await runner.CompleteJsonAsync<Report>(Call(), ct: Ct);
+        var report = await runner.CompleteJsonReflectivelyAsync<Report>(Call(), ct: Ct);
 
         Assert.True(report.Approved);
         Assert.Empty(report.Problems);
@@ -258,7 +258,7 @@ public sealed class AgentRunnerTests
     public async Task Json_null_is_an_error_rather_than_a_null_reference_later()
     {
         var runner = new AgentRunner(new FakeChatClient("null"));
-        await Assert.ThrowsAsync<AgentException>(() => runner.CompleteJsonAsync<Verdict>(Call(), ct: Ct));
+        await Assert.ThrowsAsync<AgentException>(() => runner.CompleteJsonReflectivelyAsync<Verdict>(Call(), ct: Ct));
     }
 
     [Fact]

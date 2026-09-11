@@ -170,7 +170,7 @@ public sealed class ToolLoopTests
     {
         var client = new NarratingClient();
 
-        var verdict = await new AgentRunner(client).CompleteJsonWithToolsAsync<Verdict>(
+        var verdict = await new AgentRunner(client).CompleteJsonWithToolsReflectivelyAsync<Verdict>(
             Call(), new Ledger(), GrantAllTools.Instance, ct: Ct);
 
         // Two requests: the tool loop, then the binding call.
@@ -194,7 +194,7 @@ public sealed class ToolLoopTests
         var runner = new AgentRunner(new FakeChatClient(narrated));
 
         var error = await Assert.ThrowsAsync<AgentException>(
-            () => runner.CompleteJsonAsync<Verdict>(Call(), ct: Ct));
+            () => runner.CompleteJsonReflectivelyAsync<Verdict>(Call(), ct: Ct));
 
         // "Could not bind" alone sends you looking at your record type instead
         // of at the request that confused the model.

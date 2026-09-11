@@ -48,7 +48,7 @@ public sealed class AgentScopeTests
         var runner = new AgentRunner(new FakeChatClient("{\"approved\":true}"));
         using var scope = AgentScope.Begin("review");
 
-        await runner.CompleteJsonWithToolsAsync<Approval>(
+        await runner.CompleteJsonWithToolsReflectivelyAsync<Approval>(
             Call(), new NoTools(), GrantAllTools.Instance, ct: Ct);
 
         // The two-phase path is the reason both numbers exist: the loop runs
