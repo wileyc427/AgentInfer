@@ -116,43 +116,96 @@ internal static class SchemaWriter
     /// because it found nothing to check.
     /// </para>
     /// </remarks>
-    public static IEnumerable<string> ReturnChecks(ITypeSymbol type)
+    public static IEnumerable<string> ReturnChecks(ITypeSymbol type) =>
+        Checks(type, "value", new HashSet<string>(StringComparer.Ordinal), depth: 0);
+
+    /// <summary>
+    /// Checks for one type, reached through <paramref name="path"/>.
+    /// </summary>
+    /// <remarks>
+    /// Depth-limited and cycle-guarded exactly as <see cref="Describe"/> is,
+    /// and that is not a coincidence — the two have to cover the same set. A
+    /// schema that recursed into a nested record while the checks stopped at
+    /// the top level would tell the model a bound and then not hold it to it,
+    /// which is the original failure with an extra level of indirection.
+    /// </remarks>
+    private static IEnumerable<string> Checks(ITypeSymbol type, string path, HashSet<string> seen, int depth)
     {
-        if (Unwrap(type) is not INamedTypeSymbol named) yield break;
+        if (depth > 3) yield break;
 
-        foreach (var member in named.GetMembers().OfType<IPropertySymbol>())
+        type = Unwrap(type);
+
+        if (type is not INamedTypeSymbol named ||
+            named.TypeKind is not (TypeKind.Class or TypeKind.Struct) ||
+            ScalarSchema(type) is not null)
         {
-            if (member.DeclaredAccessibility != Accessibility.Public || member.IsStatic) continue;
-            if (member.Name == "EqualityContract") continue;
+            yield break;
+        }
 
-            foreach (var attribute in member.GetAttributes())
+        var key = named.ToDisplayString();
+        if (!seen.Add(key)) yield break;
+
+        try
+        {
+            foreach (var member in named.GetMembers().OfType<IPropertySymbol>())
             {
-                var name = attribute.AttributeClass?.ToDisplayString();
-                var arguments = attribute.ConstructorArguments;
+                if (member.DeclaredAccessibility != Accessibility.Public || member.IsStatic) continue;
+                if (member.Name == "EqualityContract") continue;
 
-                if (name == "System.ComponentModel.DataAnnotations.RangeAttribute" && arguments.Length >= 2)
-                {
-                    var min = Invariant(arguments[0].Value!);
-                    var max = Invariant(arguments[1].Value!);
+                var member_path = path + "." + member.Name;
 
-                    yield return "if (value." + member.Name + " is < " + min + " or > " + max + ") "
-                        + "return $\"" + Camel(member.Name) + " must be between " + min + " and " + max
-                        + ", not {value." + member.Name + "}\";";
-                }
-                else if (name == "System.ComponentModel.DataAnnotations.MinLengthAttribute" && arguments.Length >= 1)
-                {
-                    var min = Invariant(arguments[0].Value!);
+                foreach (var check in ChecksFor(member, member_path)) yield return check;
 
-                    yield return "if (value." + member.Name + ".Length < " + min + ") "
-                        + "return \"" + Camel(member.Name) + " must be at least " + min + " long\";";
-                }
-                else if (name == "System.ComponentModel.DataAnnotations.MaxLengthAttribute" && arguments.Length >= 1)
-                {
-                    var max = Invariant(arguments[0].Value!);
+                // Nested records get the same treatment, one level down.
+                foreach (var check in Checks(member.Type, member_path, seen, depth + 1)) yield return check;
+            }
+        }
+        finally
+        {
+            seen.Remove(key);
+        }
+    }
 
-                    yield return "if (value." + member.Name + ".Length > " + max + ") "
-                        + "return \"" + Camel(member.Name) + " must be at most " + max + " long\";";
-                }
+    /// <summary>The DataAnnotations on one property, as lines of C#.</summary>
+    private static IEnumerable<string> ChecksFor(IPropertySymbol member, string path)
+    {
+        // `.Length` for a string or an array, `.Count` for anything else that
+        // counts — the same split LengthKeyword makes when it chooses between
+        // maxLength and maxItems, so the schema and the check agree on what is
+        // being measured.
+        var size = member.Type.SpecialType == SpecialType.System_String || member.Type is IArrayTypeSymbol
+            ? ".Length"
+            : ".Count";
+
+        var noun = member.Type.SpecialType == SpecialType.System_String ? "characters" : "items";
+
+        foreach (var attribute in member.GetAttributes())
+        {
+            var name = attribute.AttributeClass?.ToDisplayString();
+            var arguments = attribute.ConstructorArguments;
+
+            if (name == "System.ComponentModel.DataAnnotations.RangeAttribute" && arguments.Length >= 2)
+            {
+                var min = Invariant(arguments[0].Value!);
+                var max = Invariant(arguments[1].Value!);
+
+                yield return "if (" + path + " is < " + min + " or > " + max + ") "
+                    + "return $\"" + Camel(member.Name) + " must be between " + min + " and " + max
+                    + ", not {" + path + "}\";";
+            }
+            else if (name == "System.ComponentModel.DataAnnotations.MinLengthAttribute" && arguments.Length >= 1)
+            {
+                var min = Invariant(arguments[0].Value!);
+
+                yield return "if (" + path + size + " < " + min + ") "
+                    + "return \"" + Camel(member.Name) + " must have at least " + min + " " + noun + "\";";
+            }
+            else if (name == "System.ComponentModel.DataAnnotations.MaxLengthAttribute" && arguments.Length >= 1)
+            {
+                var max = Invariant(arguments[0].Value!);
+
+                yield return "if (" + path + size + " > " + max + ") "
+                    + "return \"" + Camel(member.Name) + " must have at most " + max + " " + noun + "\";";
             }
         }
     }

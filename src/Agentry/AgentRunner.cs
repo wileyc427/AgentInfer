@@ -124,11 +124,20 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     {
         ArgumentNullException.ThrowIfNull(contract);
 
+        // A schema on the call AND a contract is not a precedence question: one
+        // of the two has been edited and the other has not, and nothing here
+        // can tell which. Same reading as AGT009 gives a prompt named twice.
+        if (call.ResponseSchema.Length > 0)
+        {
+            throw new ArgumentException(
+                $"{call.Operation}: the call sets ResponseSchema and a contract was supplied. "
+                + "The contract owns the schema — leave ResponseSchema unset.",
+                nameof(call));
+        }
+
         using var activity = Source.StartActivity(call.Operation);
         var started = Stopwatch.GetTimestamp();
 
-        // The contract owns the schema, so a caller cannot set one on the call
-        // that disagrees with the type being bound.
         var described = call with { ResponseSchema = contract.Schema };
 
         var response = await _client.GetResponseAsync(Build(described, json: true), FormatFor(described), ct)
@@ -311,6 +320,17 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(contract);
+
+        // A schema on the call AND a contract is not a precedence question: one
+        // of the two has been edited and the other has not, and nothing here
+        // can tell which. Same reading as AGT009 gives a prompt named twice.
+        if (call.ResponseSchema.Length > 0)
+        {
+            throw new ArgumentException(
+                $"{call.Operation}: the call sets ResponseSchema and a contract was supplied. "
+                + "The contract owns the schema — leave ResponseSchema unset.",
+                nameof(call));
+        }
         ArgumentNullException.ThrowIfNull(invoker);
         ArgumentNullException.ThrowIfNull(authorizer);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxIterations, 1);
