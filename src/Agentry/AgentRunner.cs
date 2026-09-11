@@ -28,9 +28,18 @@ namespace Agentry;
 /// </remarks>
 public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger = null)
 {
-    private static readonly ActivitySource Source = new("Agentry");
+    private static ActivitySource Source => AgentMetrics.Source;
 
-    private readonly IChatClient _client = client ?? throw new ArgumentNullException(nameof(client));
+    /// <summary>
+    /// The caller's client, wrapped so every request is counted.
+    /// </summary>
+    /// <remarks>
+    /// Wrapped here rather than left to the host's pipeline. See
+    /// <see cref="CountingChatClient"/>: a budget a consumer has to remember to
+    /// register is a budget that reads correctly and does nothing.
+    /// </remarks>
+    private readonly IChatClient _client =
+        new CountingChatClient(client ?? throw new ArgumentNullException(nameof(client)));
     private readonly ILogger _logger = (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
 
     /// <summary>Runs a method whose return type is <see cref="string"/>.</summary>
@@ -243,7 +252,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         // public method the caller entered through, and threading it down would
         // be plumbing to reach something already ambient.
         Record(call, log);
-        Log(call, started, text.Length);
+        Log(call, started, text.Length, log.Invocations);
         return text;
     }
 
@@ -459,10 +468,22 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     private static string Trim(string text) =>
         text.Length <= 400 ? text : string.Concat(text.AsSpan(0, 399), "…");
 
-    private void Log(AgentCall call, long started, int length) =>
+    /// <summary>
+    /// One line per generation method call, and one tick on the enclosing scope.
+    /// </summary>
+    /// <remarks>
+    /// Called once per public entry point — including the two-phase typed tool
+    /// path, which is one operation and two requests. That difference is the
+    /// point of counting both.
+    /// </remarks>
+    private void Log(AgentCall call, long started, int length, int toolCalls = 0)
+    {
+        AgentScope.RecordOperation(toolCalls);
+
         _logger.LogInformation(
             "{Operation} completed in {Elapsed:F1}s, {Length} chars",
             call.Operation,
             Stopwatch.GetElapsedTime(started).TotalSeconds,
             length);
+    }
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 
 namespace Agentry;
@@ -87,4 +88,35 @@ public static class AgentMetrics
     /// <summary>Tools offered after permissions narrowed the menu.</summary>
     internal static Histogram<int> ToolsOffered { get; } =
         Meter.CreateHistogram<int>("agentry.tools.offered", "{tool}", "Tools offered to the model.");
+
+    /// <summary>
+    /// Spans, sharing the meter's name so one string enables everything.
+    /// </summary>
+    /// <remarks>
+    /// One source rather than one per type. A second <see cref="ActivitySource"/>
+    /// with the same name works, because listeners match on the name — which is
+    /// exactly why having two is a trap: they behave identically until somebody
+    /// renames one.
+    /// </remarks>
+    internal static ActivitySource Source { get; } = new(MeterName);
+
+    /// <summary>
+    /// Generation method calls in one <see cref="AgentScope"/>.
+    /// </summary>
+    /// <remarks>
+    /// The workflow-level counterpart to <see cref="CallsPerTurn"/>, and the
+    /// same argument one level up: an orchestration is worth what it costs, and
+    /// a router that spends four model calls choosing between two branches is
+    /// something to read rather than infer.
+    /// </remarks>
+    internal static Histogram<int> WorkflowOperations { get; } =
+        Meter.CreateHistogram<int>("agentry.workflow.operations", "{call}", "Generation method calls per workflow.");
+
+    /// <summary>Requests actually sent to a model in one scope.</summary>
+    internal static Histogram<int> WorkflowRequests { get; } =
+        Meter.CreateHistogram<int>("agentry.workflow.requests", "{request}", "Model requests per workflow.");
+
+    /// <summary>Wall-clock seconds one scope took.</summary>
+    internal static Histogram<double> WorkflowDuration { get; } =
+        Meter.CreateHistogram<double>("agentry.workflow.duration", "s", "Workflow duration.");
 }
