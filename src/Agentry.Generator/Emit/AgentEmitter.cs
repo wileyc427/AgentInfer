@@ -179,9 +179,24 @@ internal static class AgentEmitter
         code.AppendLine();
         code.Append("    public string Schema => ").Append(ToolEmit.Literal(method.ReturnSchema)).AppendLine(";");
         code.AppendLine();
+        // Reached by type, not by the member name the other generator will
+        // choose. That name is the simple type name for ordinary records and
+        // something else entirely for generics and nested types, so guessing it
+        // works until somebody returns a Task<Page<Row>>. AGT014 has already
+        // checked the context declares this type, so the null branch is for a
+        // context edited afterwards rather than the common case.
+        code.Append("    private static readonly global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<")
+            .Append(method.ReturnType).AppendLine("> Info =");
+        code.Append("        (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<")
+            .Append(method.ReturnType).Append(">?)").Append(model.JsonContext)
+            .Append(".Default.GetTypeInfo(typeof(").Append(method.ReturnType).AppendLine("))");
+        code.Append("        ?? throw new global::System.InvalidOperationException(")
+            .Append(ToolEmit.Literal(
+                $"{model.JsonContext} does not serialize {method.ReturnType}. Add [JsonSerializable(typeof({element}))] to it."))
+            .AppendLine(");");
+        code.AppendLine();
         code.Append("    public global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<")
-            .Append(method.ReturnType).Append("> TypeInfo => ")
-            .Append(model.JsonContext).Append(".Default.").Append(element).AppendLine(";");
+            .Append(method.ReturnType).AppendLine("> TypeInfo => Info;");
         code.AppendLine();
         code.Append("    public string? Validate(").Append(method.ReturnType).AppendLine(" value)");
         code.AppendLine("    {");
@@ -229,7 +244,9 @@ internal static class AgentEmitter
         code.Append("            TaskPrompt = ").Append(ToolEmit.Literal(method.TaskPrompt)).AppendLine(",");
         code.Append("            Operation = ").Append(ToolEmit.Literal(method.Operation)).AppendLine(",");
 
-        if (method.ReturnSchema.Length > 0)
+        // Omitted when a contract carries it: the runtime refuses both, because
+        // a schema in two places is one of them being out of date.
+        if (method.ReturnSchema.Length > 0 && !hasContract)
         {
             // The shape the model must produce, as a literal. This is the other
             // half of "schemas at compile time" — parameters had one and return

@@ -50,6 +50,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
     private const string AgentToolsAttribute = "Agentry.AgentToolsAttribute";
     private const string ModelAttribute = "Agentry.ModelAttribute";
     private const string AgentryJsonAttribute = "Agentry.AgentryJsonAttribute";
+    private const string JsonSerializableAttribute = "System.Text.Json.Serialization.JsonSerializableAttribute";
     private const string RequiresPermissionAttribute = "Agentry.RequiresPermissionAttribute";
 
 
@@ -157,7 +158,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
     /// the reflective one, which still works and still says so with
     /// <c>[RequiresUnreferencedCode]</c>.
     /// </remarks>
-    private static string JsonContextOf(GeneratorAttributeSyntaxContext ctx)
+    private static INamedTypeSymbol? JsonContextOf(GeneratorAttributeSyntaxContext ctx)
     {
         foreach (var attribute in ctx.SemanticModel.Compilation.Assembly.GetAttributes())
         {
@@ -165,11 +166,47 @@ public sealed class AgentGenerator : IIncrementalGenerator
 
             if (attribute.ConstructorArguments.FirstOrDefault().Value is INamedTypeSymbol context)
             {
-                return context.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                return context;
             }
         }
 
-        return string.Empty;
+        return null;
+    }
+
+    /// <summary>Whether this type is a <c>JsonSerializerContext</c>.</summary>
+    private static bool IsJsonContext(INamedTypeSymbol type)
+    {
+        for (var current = type.BaseType; current is not null; current = current.BaseType)
+        {
+            if (current.ToDisplayString() == "System.Text.Json.Serialization.JsonSerializerContext") return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Every type the context declares <c>[JsonSerializable]</c> for.
+    /// </summary>
+    /// <remarks>
+    /// Read from the consumer's own source, which is the only part of the other
+    /// generator's world this one can see. Its <em>output</em> is invisible;
+    /// the attributes that drive it are not.
+    /// </remarks>
+    private static ImmutableHashSet<string> SerializableTypes(INamedTypeSymbol context)
+    {
+        var types = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
+
+        foreach (var attribute in context.GetAttributes())
+        {
+            if (attribute.AttributeClass?.ToDisplayString() != JsonSerializableAttribute) continue;
+
+            if (attribute.ConstructorArguments.FirstOrDefault().Value is INamedTypeSymbol serialized)
+            {
+                types.Add(serialized.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+            }
+        }
+
+        return types.ToImmutable();
     }
 
     /// <summary>The result of reading one <c>[AgentTools]</c> type.</summary>
@@ -289,6 +326,43 @@ public sealed class AgentGenerator : IIncrementalGenerator
         var implementationName = ImplementationNameFor(type, ctx);
 
         // A model is still produced alongside errors so the IDE keeps offering
+        // The declared JSON context, checked before anything is emitted against
+        // it. Both failures below would otherwise surface inside a generated
+        // file the user cannot open.
+        var jsonContext = string.Empty;
+
+        if (JsonContextOf(ctx) is { } context)
+        {
+            if (!IsJsonContext(context))
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    Diagnostics.NotAJsonContext, Location(type), context.ToDisplayString()));
+            }
+            else
+            {
+                jsonContext = context.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                var serializable = SerializableTypes(context);
+
+                foreach (var method in methods)
+                {
+                    if (method.Shape != ReturnShape.Json) continue;
+                    if (serializable.Contains(method.ReturnType)) continue;
+
+                    diagnostics.Add(Diagnostic.Create(
+                        Diagnostics.ReturnTypeNotSerializable,
+                        Location(type),
+                        $"{type.Name}.{method.Name}",
+                        method.ReturnType,
+                        context.Name,
+                        method.ReturnType));
+
+                    // Fall back rather than emit a contract that cannot bind.
+                    jsonContext = string.Empty;
+                    break;
+                }
+            }
+        }
+
         // completion for the members that ARE valid. Half a generated file beats
         // a red squiggle on every use site while you fix one attribute.
         var model = new AgentModel(
@@ -303,7 +377,7 @@ public sealed class AgentGenerator : IIncrementalGenerator
             Methods: new EquatableArray<MethodModel>(methods.ToImmutable()),
             Tools: tools,
             ToolsType: toolsType,
-            JsonContext: JsonContextOf(ctx));
+            JsonContext: jsonContext);
 
         return new Result(
             model,

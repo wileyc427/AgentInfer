@@ -21,3 +21,5 @@ AGT009  | Agentry  | Error    | Both a prompt and a PromptFile were set
 AGT010  | Agentry  | Error    | PromptFile matches more than one AdditionalFiles entry
 AGT011  | Agentry  | Error    | [Flags] enum has no JSON schema
 AGT012  | Agentry  | Warning  | [AgentTools] type has no [AgentTool] methods
+AGT013  | Agentry  | Error    | [AgentryJson] target is not a JsonSerializerContext
+AGT014  | Agentry  | Error    | Return type is not declared in the JSON context

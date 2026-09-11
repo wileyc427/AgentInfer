@@ -83,6 +83,20 @@ public sealed class ReplyContractTests
     }
 
     [Fact]
+    public async Task A_schema_on_the_call_and_a_contract_is_refused()
+    {
+        var runner = new AgentRunner(new FakeChatClient("""{"value":4,"reason":"ok"}"""));
+        var call = Call() with { ResponseSchema = """{"type":"object"}""" };
+
+        // Not a precedence question: one of the two has been edited and the
+        // other has not, and nothing here can tell which.
+        var error = await Assert.ThrowsAsync<ArgumentException>(
+            () => runner.CompleteJsonAsync(call, ScoreContract.Instance, Ct));
+
+        Assert.Contains("contract owns the schema", error.Message);
+    }
+
+    [Fact]
     public async Task A_reply_that_will_not_bind_still_says_what_the_model_said()
     {
         var runner = new AgentRunner(new FakeChatClient("""{"value":4}"""));
