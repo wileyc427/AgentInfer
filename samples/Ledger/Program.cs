@@ -5,6 +5,8 @@ using Agentry;
 
 using Ledger;
 
+using Microsoft.Extensions.Logging;
+
 var (client, description) = Model.Resolve();
 Console.WriteLine($"model: {description}");
 
@@ -18,8 +20,16 @@ Console.WriteLine(
     $"tools: {string.Join(", ", invoker.AvailableTo(caller).Select(t => t.Name))} " +
     $"(of {invoker.Manifest.Tools.Count}; the rest need permissions this caller lacks)\n");
 
+// Logging on by default in the sample. The instrumentation exists to answer
+// "how many tool calls did that actually take", and a demo that computes the
+// number and then discards it is not answering anything.
+using var logs = LoggerFactory.Create(builder => builder
+    .SetMinimumLevel(LogLevel.Information)
+    .AddSimpleConsole(options => options.SingleLine = true));
+
 // Generated. In a real host all three come from DI.
-ILedgerAnalyst analyst = new LedgerAnalystAgent(new AgentRunner(client), invoker, caller);
+ILedgerAnalyst analyst = new LedgerAnalystAgent(
+    new AgentRunner(client, logs.CreateLogger<AgentRunner>()), invoker, caller);
 
 try
 {

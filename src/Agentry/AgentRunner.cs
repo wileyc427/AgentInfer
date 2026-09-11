@@ -92,9 +92,15 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         {
             // The raw text goes in the message rather than the log, because the
             // thing you need when this fires is what the model actually said.
+            var hint = LooksLikeToolCalls(text)
+                ? $" The model answered with tool-call JSON instead of a {typeof(T).Name}, "
+                  + "which usually means it was asked for tools and for JSON output at once. "
+                  + "Smaller models resolve that by writing the calls out as text."
+                : string.Empty;
+
             throw new AgentException(
                 call.Operation,
-                $"could not bind the reply to {typeof(T).Name}. Reply was: {Trim(text)}",
+                $"could not bind the reply to {typeof(T).Name}.{hint} Reply was: {Trim(text)}",
                 error);
         }
     }
@@ -167,10 +173,34 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         using var activity = Source.StartActivity(call.Operation);
         var started = Stopwatch.GetTimestamp();
 
-        var text = await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: true, started, ct)
+        // Two phases, and the second one is not optional.
+        //
+        // Asking for tools and for JSON-only output in the same request is a
+        // contradiction, and models resolve it badly. A real qwen3 run answered
+        // by writing its tool calls into the message body as JSON text —
+        // {"name": "TotalFor", "arguments": {"category": "books"}} — which the
+        // loop never saw as tool calls and the binder then failed on. The model
+        // was not malfunctioning; it was told to reply with JSON and did.
+        //
+        // So: run the loop with no JSON instruction and let it use tools
+        // normally, then bind in a second call with no tools and nothing to be
+        // confused by. One extra round trip, and the failure mode goes away
+        // rather than being tuned around.
+        var text = await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, started, ct)
             .ConfigureAwait(false);
 
-        return Bind<T>(call, text, options);
+        var binding = new AgentCall
+        {
+            SystemPrompt = call.SystemPrompt,
+            TaskPrompt = call.TaskPrompt,
+            Operation = call.Operation + " (bind)",
+            Arguments = [new KeyValuePair<string, string>("answer", text)],
+        };
+
+        var reply = await _client.GetResponseAsync(Build(binding, json: true), cancellationToken: ct)
+            .ConfigureAwait(false);
+
+        return Bind<T>(call, reply.Text ?? string.Empty, options);
     }
 
     private async Task<string> RunWithToolsAsync(
@@ -282,6 +312,18 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         var fence = body.LastIndexOf("```", StringComparison.Ordinal);
         return (fence < 0 ? body : body[..fence]).Trim();
     }
+
+    /// <summary>
+    /// Whether a reply is the model narrating tool calls rather than answering.
+    /// </summary>
+    /// <remarks>
+    /// A specific, recognisable failure deserves a specific message. Without
+    /// this the error is "could not bind", which sends you looking at your
+    /// record type instead of at the request that confused the model.
+    /// </remarks>
+    private static bool LooksLikeToolCalls(string text) =>
+        text.Contains("\"name\"", StringComparison.Ordinal) &&
+        text.Contains("\"arguments\"", StringComparison.Ordinal);
 
     private static string Trim(string text) =>
         text.Length <= 400 ? text : string.Concat(text.AsSpan(0, 399), "…");

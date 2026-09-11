@@ -27,8 +27,19 @@ public sealed record Verdict(bool Approved, int Score, string[] Problems);
 public interface ILedgerAnalyst
 {
     /// <summary>Returns prose, so no schema and no parsing is involved.</summary>
+    /// <remarks>
+    /// MaxIterations was 8, and a real qwen3 run silently produced a wrong
+    /// answer because of it: answering through the per-category tools needs
+    /// 1 + 2N calls — nine for four categories — and the model is cut off at
+    /// the bound, then writes a summary from what it managed to fetch. The
+    /// output read as "other categories lack sufficient data", which is a
+    /// plausible sentence and a false one.
+    ///
+    /// Raised to 16 so the chatty path completes. The better fix is the
+    /// Overview tool, which does it in one call — see LedgerTools.
+    /// </remarks>
     [Prompt("Which categories are over budget, and by how much?")]
-    [Strategy(Strategies.Predict, MaxIterations = 8)]
+    [Strategy(Strategies.Predict, MaxIterations = 16)]
     public Task<string> SummariseAsync(CancellationToken ct = default);
 
     /// <summary>

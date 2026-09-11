@@ -2,6 +2,9 @@ using Agentry;
 
 namespace Ledger;
 
+/// <summary>One category's spend against its budget.</summary>
+public sealed record CategorySummary(string Category, decimal Spent, decimal Budget);
+
 /// <summary>
 /// The deterministic half: ordinary methods with real bodies.
 /// </summary>
@@ -46,6 +49,38 @@ public sealed class LedgerTools
     [RequiresPermission("ledger.write")]
     public void Reclassify(string category, string newCategory) =>
         throw new NotImplementedException("P2: the broker dispatches this, not the model directly.");
+
+    /// <summary>
+    /// Everything, in one call. The coarse-grained alternative.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The three tools above are a chatty API: answering "which categories are
+    /// over budget" through them costs 1 + 2N calls — nine for four categories,
+    /// each one a separate model turn. This costs one.
+    /// </para>
+    /// <para>
+    /// That difference is worth understanding before reaching for anything more
+    /// exotic. The usual argument for letting a model write code is that it can
+    /// loop over tools instead of calling them one at a time — but most of the
+    /// time the loop exists because the tool API was designed for a UI, where a
+    /// caller knows which single row it wants. A model asking an open question
+    /// wants the whole table.
+    /// </para>
+    /// <para>
+    /// Design tools for a caller that is reasoning about all of it at once, and
+    /// the round trips that motivated generated code stop existing.
+    /// </para>
+    /// </remarks>
+    [AgentTool("Every category with its total and its budget, in one call. Prefer this over the per-category tools.")]
+    [RequiresPermission("ledger.read")]
+    public IReadOnlyList<CategorySummary> Overview() =>
+    [
+        .. _spend.Keys.Order().Select(category => new CategorySummary(
+            category,
+            _spend[category],
+            _budget.TryGetValue(category, out var budget) ? budget : 0m)),
+    ];
 
     /// <summary>Not a tool. No attribute, so the generator never sees it.</summary>
     public string DebugDump() => string.Join(", ", _spend.Select(pair => $"{pair.Key}={pair.Value}"));
