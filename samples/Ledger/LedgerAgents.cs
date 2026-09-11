@@ -21,21 +21,22 @@ public sealed record Verdict(
 /// The whole authoring surface: an interface, attributed.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Note what the methods do <em>not</em> take. Before there were tools,
 /// <c>SummariseAsync</c> was handed the figures as a string. Now the agent
 /// fetches them, which is the point of tools and also the more honest demo —
 /// passing the data in makes the tools decorative.
+/// </para>
+/// <para>
+/// The prompt is in <c>Prompts/ledger-analyst.md</c>, read by the generator at
+/// compile time and emitted as the same constant an inline prompt produces —
+/// open <c>obj/generated</c> and it is there in full. The sample takes this
+/// route because a system prompt is the one string here that grows: markdown
+/// beats a raw string literal for anything long enough to want headings, and
+/// the diff lands on a prompt file rather than on a code file.
+/// </para>
 /// </remarks>
-[Agent("""
-    You answer questions about a household ledger.
-
-    You have tools for listing categories, totalling one, and reading its
-    budget. Use them. Never invent an amount, and never state a figure you did
-    not get from a tool.
-
-    Answer in one or two sentences with the actual numbers in them.
-    """,
-    Tools = typeof(LedgerTools))]
+[Agent(PromptFile = "Prompts/ledger-analyst.md", Tools = typeof(LedgerTools))]
 public interface ILedgerAnalyst
 {
     /// <summary>Returns prose, so no schema and no parsing is involved.</summary>
