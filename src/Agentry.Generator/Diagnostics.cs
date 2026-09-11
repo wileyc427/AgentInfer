@@ -107,4 +107,17 @@ internal static class Diagnostics
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    /// <summary>
+    /// A <c>[Flags]</c> enum in a schema position. The member list describes a
+    /// choice of one, so a set-valued type offered that way invites the reply
+    /// <c>"Read, Write"</c> — which reads correctly and binds to nothing.
+    /// </summary>
+    public static readonly DiagnosticDescriptor UnsupportedFlagsEnum = new(
+        id: "AGT008",
+        title: "Flags enum has no JSON schema",
+        messageFormat: "'{0}' uses '{1}', which is a [Flags] enum. JSON Schema describes a choice of one value, not a set — return an array of a plain enum instead.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }
