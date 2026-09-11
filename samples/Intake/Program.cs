@@ -85,7 +85,7 @@ Console.WriteLine(
     + $"(of {IntakeToolsInvoker.Tools.Tools.Count}; Charges and Close need permissions this caller lacks)\n");
 
 const string Ticket =
-    "We were charged twice for the March seat licence and once for a seat we removed in February. "
+    "We were charged twice for the March seat license and once for a seat we removed in February. "
     + "Need both refunded and the seat count corrected before the next cycle.";
 
 try
@@ -97,7 +97,7 @@ try
     var category = await intake.ClassifyAsync(Ticket);
     Console.WriteLine($"category: {category}  (short ticket, so the fast role)");
 
-    var summary = await intake.SummariseAsync("T-1041");
+    var summary = await intake.SummarizeAsync("T-1041");
     Console.WriteLine($"summary:  {summary}");
 
     // The scripted model answers urgency 9 out of a declared 1-5 the first

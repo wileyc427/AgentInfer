@@ -264,9 +264,9 @@ public sealed class ToolRoutingTests
         [Agent("You are terse.", Tools = typeof(Tools))]
         public interface IAnalyst
         {
-            [Prompt("Summarise.")]
+            [Prompt("Summarize.")]
             [Strategy(Strategies.Predict, MaxIterations = 9)]
-            public Task<string> SummariseAsync(CancellationToken ct = default);
+            public Task<string> SummarizeAsync(CancellationToken ct = default);
 
             [Prompt("Judge.")]
             public Task<Verdict> ReviewAsync(string summary, CancellationToken ct = default);

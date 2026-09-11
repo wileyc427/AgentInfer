@@ -28,7 +28,7 @@ public interface IIntake
 {
     public Task<Category> ClassifyAsync(string ticket, CancellationToken ct = default);
 
-    public Task<string> SummariseAsync(string ticketId, CancellationToken ct = default);
+    public Task<string> SummarizeAsync(string ticketId, CancellationToken ct = default);
 
     public Task<Extract> ExtractAsync(string ticketId, CancellationToken ct = default);
 }
@@ -137,13 +137,13 @@ public sealed class IntakeAgent : IIntake
     }
 
     /// <summary>Prose over tools. The plain case, and it is one line.</summary>
-    public async Task<string> SummariseAsync(string ticketId, CancellationToken ct = default)
+    public async Task<string> SummarizeAsync(string ticketId, CancellationToken ct = default)
     {
         var call = new AgentCall
         {
             SystemPrompt = _systemPrompt,
-            TaskPrompt = "Read this ticket and summarise what the customer is asking for, in two sentences.",
-            Operation = "IIntake.SummariseAsync",
+            TaskPrompt = "Read this ticket and summarize what the customer is asking for, in two sentences.",
+            Operation = "IIntake.SummarizeAsync",
             Arguments = [new KeyValuePair<string, string>("ticketId", ticketId)],
         };
 

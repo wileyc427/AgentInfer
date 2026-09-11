@@ -28,7 +28,7 @@ public sealed class IntakeTools
     {
         ["T-1041"] = new(
             "Ravensmere Dental",
-            "We were charged twice for the March seat licence and once for a seat we removed in "
+            "We were charged twice for the March seat license and once for a seat we removed in "
             + "February. Need both refunded and the seat count corrected before the next cycle.",
             "Practice"),
         ["T-1042"] = new(

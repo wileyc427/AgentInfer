@@ -42,7 +42,7 @@ jobs:
 
     strategy:
       # Every cell reports. A Windows-only failure is the most likely kind here
-      # and the least useful thing to have cancelled by a Linux one.
+      # and the least useful thing to have canceled by a Linux one.
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
@@ -56,7 +56,7 @@ jobs:
         with:
           global-json-file: global.json
 
-      # Printed because the generator's behaviour depends on it, and "which SDK
+      # Printed because the generator's behavior depends on it, and "which SDK
       # was that" is the first question every generator failure asks.
       - name: Report the toolchain
         run: dotnet --info

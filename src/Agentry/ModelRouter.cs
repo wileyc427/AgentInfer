@@ -5,7 +5,7 @@ namespace Agentry;
 /// </summary>
 /// <remarks>
 /// One method rather than a registry type, so the obvious implementation is a
-/// dictionary and the DI-flavoured one is a lambda over keyed services:
+/// dictionary and the DI-flavored one is a lambda over keyed services:
 /// <code>
 /// services.AddKeyedSingleton&lt;AgentRunner&gt;("accurate", …);
 /// services.AddSingleton&lt;IModelRouter&gt;(sp =&gt;

@@ -14,7 +14,7 @@ namespace Agentry.Tests;
 /// </remarks>
 public sealed class ToolInvokerTests
 {
-    /// <summary>Stands in for the generated class. Same base, same behaviour.</summary>
+    /// <summary>Stands in for the generated class. Same base, same behavior.</summary>
     private sealed class Fake : ToolInvoker
     {
         public string? Dispatched { get; private set; }

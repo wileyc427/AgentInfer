@@ -27,7 +27,7 @@ public sealed record AgentCall
     public required IReadOnlyList<KeyValuePair<string, string>> Arguments { get; init; }
 
     /// <summary>
-    /// Names the agent and method for logs and traces — <c>ILedgerAnalyst.SummariseAsync</c>.
+    /// Names the agent and method for logs and traces — <c>ILedgerAnalyst.SummarizeAsync</c>.
     /// </summary>
     public required string Operation { get; init; }
 
@@ -39,7 +39,7 @@ public sealed record AgentCall
     /// Generated at compile time from the return type and used twice: set as
     /// the provider's response format where that is supported, and included in
     /// the prompt where it is not. Both, because the two fail in different
-    /// places and a model that ignores one often honours the other.
+    /// places and a model that ignores one often honors the other.
     /// </remarks>
     public string ResponseSchema { get; init; } = string.Empty;
 }
