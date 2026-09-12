@@ -38,11 +38,22 @@
   </ItemGroup>
 
   <ItemGroup Label="Test">
+    <!--
+      xunit.v3 4.x runs on Microsoft.Testing.Platform and no longer supports
+      VSTest on the .NET 10 SDK. The runner is selected in global.json, and
+      xunit.runner.visualstudio — the VSTest adapter — is gone; reintroducing it
+      does nothing except restore a package.
+
+      Anything in this group is invisible to version-guard.sh, which is the
+      point: a test-tooling bump ships nothing. A PackageVersion that does ship
+      must not be filed here.
+    -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.Configuration" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <PackageVersion Include="xunit.v3" Version="3.1.0" />
-    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
+    <PackageVersion Include="xunit.v3" Version="4.0.1" />
+    <!-- The trx report is an MTP extension, not part of the platform itself. -->
+    <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" Version="1.1.2" />
   </ItemGroup>
 

@@ -112,11 +112,15 @@ jobs:
       - name: Build
         run: dotnet build --no-restore -c ${{ matrix.configuration }} -warnaserror
 
+      # Microsoft.Testing.Platform, not VSTest: the runner is selected in
+      # global.json. The trx report is an MTP extension and its flag belongs to
+      # the test executable rather than to the SDK, hence the separator. It
+      # writes one file per assembly per framework, so nothing collides.
       - name: Test
         run: >-
           dotnet test --no-build -c ${{ matrix.configuration }}
-          --logger "trx;LogFileName=test-results.trx"
           --results-directory ${{ github.workspace }}/test-results
+          -- --report-trx
 
       # Smoke tests, not decoration. Against a scripted IChatClient they need no
       # endpoint and no key, and they exercise the generator, the tool loop, the
