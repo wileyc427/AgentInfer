@@ -113,8 +113,34 @@ internal static class ToolEmit
 
         foreach (var parameter in tool.Parameters)
         {
-            code.Append("                var ").Append(parameter.Name).Append(" = arguments.GetProperty(")
-                .Append(Literal(parameter.Name)).Append(").").Append(parameter.Reader).AppendLine(";");
+            if (parameter.Default is null)
+            {
+                code.Append("                var ").Append(parameter.Name).Append(" = arguments.GetProperty(")
+                    .Append(Literal(parameter.Name)).Append(").").Append(parameter.Reader).AppendLine(";");
+                continue;
+            }
+
+            // Optional, because the signature gave it a default — so the schema
+            // left it out of `required` and the model may simply not send it.
+            //
+            // The ValueKind check is the other half and is not defensive
+            // padding: a model told an argument is optional answers with
+            // `"query": null` about as readily as by omitting the key, and
+            // GetString() on a JSON null is a JsonException out of the dispatch
+            // switch. Both spellings mean the same thing, so both take the
+            // default.
+            //
+            // The cast is what lets a `T` reader fill a `T?` parameter, which
+            // is the shape every optional filter here actually has.
+            var slot = "__" + parameter.Name;
+
+            code.Append("                var ").Append(parameter.Name).Append(" = arguments.TryGetProperty(")
+                .Append(Literal(parameter.Name)).Append(", out var ").Append(slot).AppendLine(") &&")
+                .Append("                    ").Append(slot)
+                .AppendLine(".ValueKind != global::System.Text.Json.JsonValueKind.Null")
+                .Append("                    ? (").Append(parameter.Type).Append(")(").Append(slot).Append('.')
+                .Append(parameter.Reader).AppendLine(")")
+                .Append("                    : ").Append(parameter.Default).AppendLine(";");
         }
 
         var args = string.Join(", ", tool.Parameters.Select(p => p.Name)

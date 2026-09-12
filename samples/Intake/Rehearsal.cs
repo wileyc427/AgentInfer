@@ -14,6 +14,7 @@ namespace Intake;
 internal sealed class Rehearsal : IChatClient
 {
     private int _extracts;
+    private int _listed;
 
     public Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
@@ -40,11 +41,21 @@ internal sealed class Rehearsal : IChatClient
 
         if (user.Contains("summarize what the customer is asking for", StringComparison.Ordinal))
         {
-            return toolsRan
-                ? Assistant(
+            if (toolsRan)
+            {
+                return Assistant(
                     "Ravensmere Dental were billed twice for the March seat license and once for a "
                     + "seat removed in February. They want both refunded and the seat count corrected "
-                    + "before the next cycle.")
+                    + "before the next cycle.");
+            }
+
+            // Two calls, and the first is the point: Waiting takes an optional
+            // `plan`, and this sends no arguments at all. Before the generator
+            // understood defaults that was a KeyNotFoundException out of the
+            // dispatch switch, so the empty object here is the end-to-end check
+            // that an omitted optional argument reaches the method.
+            return _listed++ == 0
+                ? Call("Waiting", "{}")
                 : Call("Ticket", "{\"id\":\"T-1041\"}");
         }
 

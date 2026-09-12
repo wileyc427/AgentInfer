@@ -622,7 +622,8 @@ public sealed class AgentGenerator : IIncrementalGenerator
                 parameters.Add(new ToolParameterModel(
                     parameter.Name,
                     parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    SchemaWriter.ReaderFor(parameter.Type)!));
+                    SchemaWriter.ReaderFor(parameter.Type)!,
+                    SchemaWriter.DefaultFor(parameter)));
             }
 
             var shape = ReturnOf(method);
