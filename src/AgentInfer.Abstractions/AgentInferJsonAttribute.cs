@@ -8,18 +8,16 @@ namespace AgentInfer;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why you declare the context and the generator only points at it.</b>
-/// Roslyn source generators do not chain: one generator's output is never
-/// another's input. A <c>JsonSerializerContext</c> emitted by AgentInfer would be
-/// invisible to <c>System.Text.Json</c>'s generator, so it would compile to an
-/// abstract class with no metadata in it — verified, and the error is
-/// "does not implement inherited abstract member GetTypeInfo(Type)".
+/// You declare the context; the generator only points at it. Roslyn generators
+/// do not chain — one generator's output is never another's input — so a
+/// <c>JsonSerializerContext</c> emitted here would be invisible to
+/// <c>System.Text.Json</c>'s generator and compile to an abstract class with no
+/// metadata.
 /// </para>
 /// <para>
-/// What does work is the other direction: two generators' <em>outputs</em> land
-/// in the same compilation, so generated code may reference generated code. You
-/// declare six lines of context, STJ's generator fills it in, and AgentInfer's
-/// generator emits contracts that reach into it.
+/// Generated code referencing generated code does work, since both land in the
+/// same compilation. You declare the context, STJ's generator fills it in, and
+/// this generator emits contracts that reach into it.
 /// </para>
 /// <para>
 /// Absent, the generated agent keeps the reflective path — which still works,

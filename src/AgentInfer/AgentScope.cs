@@ -7,36 +7,20 @@ namespace AgentInfer;
 /// </summary>
 /// <remarks>
 /// <para>
-/// This library's argument is that the workflow patterns — chaining, routing,
-/// fanning out, a writer and a critic trading turns — are ordinary C# over
-/// generated interfaces and need no framework surface. That holds. What it
-/// leaves missing is a place to hang a number on: six generation method calls
-/// composed with <c>await</c> and <c>switch</c> emit six unrelated spans, and
-/// "what did that whole thing cost" has no answer.
+/// Workflow patterns here are ordinary C# over generated interfaces, which
+/// leaves nowhere to hang a number: six method calls composed with
+/// <c>await</c> and <c>switch</c> emit six unrelated spans, and "what did that
+/// whole thing cost" has no answer. A scope starts an <see cref="Activity"/>
+/// the per-call spans nest under, counts what passes through it, and records
+/// three instruments when it closes.
 /// </para>
 /// <para>
-/// A scope starts an <see cref="Activity"/> the per-call spans nest under,
-/// counts what passed through it, and records three instruments when it
-/// closes. Opened without a bound it changes nothing: code inside one runs
-/// identically to code outside one, which is what makes an ambient,
-/// <see cref="AsyncLocal{T}"/>-flowed object acceptable in a library that
-/// otherwise insists on saying things out loud.
-/// </para>
-/// <para>
-/// <b>Given a bound it also stops the workflow.</b> <c>MaxIterations</c> bounds
-/// one method's tool loop; nothing bounded the composition, so six methods at
-/// sixteen iterations was ninety-six requests with no ceiling — and the
-/// library's own line about a bound rather than a suggestion applies harder
-/// here than it does one level down. The bound is declared at the call site,
-/// in a <c>using</c> a reviewer reads before the work it governs. The ambient
-/// part is only how it reaches the client.
-/// </para>
-/// <para>
-/// The same discipline as <c>agentinfer.tool.calls_per_turn</c>, one level up.
-/// That histogram answers "should the model be composing tool calls in code it
-/// writes"; these answer "is this orchestration earning the calls it makes" —
-/// and a router that turned out to cost four model calls to pick between two
-/// branches is a thing you want to read rather than infer.
+/// Opened without a bound it changes nothing, which is what makes an ambient
+/// <see cref="AsyncLocal{T}"/> object acceptable here. Given a bound it also
+/// stops the workflow: <c>MaxIterations</c> bounds one method's tool loop,
+/// nothing bounded the composition. The bound is declared at the call site, in
+/// a <c>using</c> a reviewer reads before the work it governs; the ambient part
+/// is only how it reaches the client.
 /// </para>
 /// </remarks>
 /// <example>
@@ -90,13 +74,9 @@ public sealed class AgentScope : IDisposable
     /// inside it.
     /// </param>
     /// <remarks>
-    /// It throws rather than truncating, and that is the same decision
-    /// <c>MaxIterations</c> got wrong first time round. Cutting a model off at
-    /// its bound and keeping the answer produced prose that read fine and said
-    /// "other categories lack sufficient data" about figures that were right
-    /// there. A workflow that spent its budget has not answered the question,
-    /// and saying so is the only outcome that cannot be mistaken for one that
-    /// did.
+    /// Throws rather than truncating. A workflow cut off at its bound writes a
+    /// plausible answer from whatever it managed to gather, which cannot be
+    /// told apart from one that finished.
     /// </remarks>
     public static AgentScope Begin(string name, int maxRequests)
     {
@@ -113,10 +93,8 @@ public sealed class AgentScope : IDisposable
 
     /// <summary>The scope this one opened inside, or null.</summary>
     /// <remarks>
-    /// Counts roll up. An agent reached as another agent's tool does its work
-    /// in a nested scope, and the outer number has to include it — otherwise
-    /// the cheapest-looking orchestration is the one that hides its calls one
-    /// level down.
+    /// Counts roll up, so an agent reached as another agent's tool cannot hide
+    /// its calls one level down.
     /// </remarks>
     public AgentScope? Parent { get; }
 
@@ -135,9 +113,8 @@ public sealed class AgentScope : IDisposable
     /// typed one adds the binding call.
     /// <para>
     /// Counted by a decorator <see cref="AgentRunner"/> puts around its own
-    /// client, rather than by something a host has to remember to register.
-    /// A bound that silently does nothing because a line of DI was missed is
-    /// the exact failure this library exists to stop shipping.
+    /// client rather than one a host registers, so a missed line of DI cannot
+    /// leave the bound silently doing nothing.
     /// </para>
     /// </remarks>
     public int Requests => Volatile.Read(ref _requests);
@@ -152,8 +129,8 @@ public sealed class AgentScope : IDisposable
     /// </summary>
     /// <remarks>
     /// Restores whichever scope was current when this one opened rather than
-    /// clearing the slot, so a nested scope closing does not silently detach
-    /// the rest of the outer workflow from its own counts.
+    /// clearing the slot, so a nested scope closing does not detach the rest of
+    /// the outer workflow from its counts.
     /// </remarks>
     public void Dispose()
     {
@@ -191,9 +168,9 @@ public sealed class AgentScope : IDisposable
     /// Counts one request against every enclosing scope, innermost first.
     /// </summary>
     /// <remarks>
-    /// Checked before the request is sent, because the point of a budget is the
-    /// call that does not happen. Innermost first so the message names the
-    /// scope whose bound actually ran out, which is the one worth reading.
+    /// Checked before the request is sent: the point of a budget is the call
+    /// that does not happen. Innermost first, so the message names the scope
+    /// whose bound ran out.
     /// </remarks>
     internal static void RecordRequest()
     {
@@ -224,9 +201,9 @@ public sealed class AgentScope : IDisposable
 
 /// <summary>Thrown when a workflow has sent every request it was allowed.</summary>
 /// <remarks>
-/// Distinct from <see cref="AgentException"/>, which names one operation that
-/// could not produce a usable result. This one is about the composition: every
-/// operation may have worked, and the whole still cost more than it was given.
+/// Distinct from <see cref="AgentException"/>, which names one failed
+/// operation. This one is about the composition: every operation may have
+/// worked and the whole still cost more than it was given.
 /// </remarks>
 public sealed class AgentBudgetExceededException(string workflow, int maxRequests)
     : Exception($"'{workflow}' reached its bound of {maxRequests} model request(s) and stopped. "
