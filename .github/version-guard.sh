@@ -22,10 +22,12 @@ set -euo pipefail
 
 base="${1:-origin/main}"
 
-# What counts as shippable. src/ is the package; Directory.Packages.props sets
-# the dependency versions that go into the nuspec. tests/ and samples/ do not
+# What counts as shippable. src/ is the package. tests/ and samples/ do not
 # ship, and requiring a bump for a test would train people to bump mechanically
 # — which is the habit this check exists to prevent, not to create.
+#
+# Directory.Packages.props is handled separately below, because only part of it
+# ships.
 #
 # Directory.Build.props is deliberately NOT watched, and that is a known gap
 # rather than an oversight. It is where <Version> itself lives, so watching it
@@ -35,7 +37,7 @@ base="${1:-origin/main}"
 # without tripping this. That edit happens a few lines from <Version> and the
 # comment above it says to raise it, which is the best available answer that
 # does not make the guard cry wolf. A guard that cries wolf gets deleted.
-watched=(src Directory.Packages.props)
+watched=(src)
 
 if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
   echo "version-guard: cannot resolve '$base'. Fetch it first, or pass another base." >&2
@@ -46,6 +48,30 @@ fi
 # base's current tip. Otherwise unrelated commits landing on main while a branch
 # is open read as changes this branch made.
 changed=$(git diff --name-only "$base...HEAD" -- "${watched[@]}")
+
+# Directory.Packages.props holds both the dependency versions that land in the
+# nuspec and the ones only the test projects use. Watching the whole file makes
+# every routine test-tooling bump demand a version for a package whose contents
+# did not move — and a guard that cries wolf gets deleted. So the Test group is
+# stripped from both sides and only the remainder is compared.
+#
+# The label is load-bearing: a PackageVersion for a test-only dependency that
+# sits outside <ItemGroup Label="Test"> will be treated as shipping.
+shipping_packages() {
+  if [ "$1" = "-" ]; then
+    cat Directory.Packages.props
+  else
+    git show "$1:Directory.Packages.props" 2>/dev/null || true
+  fi | awk '/<ItemGroup Label="Test">/ { skip = 1 }
+            !skip           { print }
+            skip && /<\/ItemGroup>/ { skip = 0 }'
+}
+
+if ! diff -q <(shipping_packages "$base") <(shipping_packages -) >/dev/null 2>&1; then
+  changed=$(printf '%s\nDirectory.Packages.props' "$changed")
+fi
+
+changed=$(printf '%s' "$changed" | sed '/^[[:space:]]*$/d')
 
 if [ -z "$changed" ]; then
   echo "version-guard: nothing shippable changed. The version may stay where it is."
