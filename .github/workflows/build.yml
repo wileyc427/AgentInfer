@@ -16,6 +16,7 @@ name: build
 on:
   push:
     branches: ['**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -51,10 +52,11 @@ jobs:
   # at review rather than turn main red after the merge.
   version:
     name: version
+    if: "!startsWith(github.ref, 'refs/tags/')"
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # The guard diffs against the default branch, which a shallow clone
           # does not have. Without this it fails to resolve the base and exits 2
@@ -90,11 +92,14 @@ jobs:
         configuration: [Debug, Release]
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install the SDK this repo pins
-        uses: actions/setup-dotnet@v6
+      # The SDK builds both targets; the net8.0 runtime is what runs the net8.0
+      # half of the test matrix. Without it those tests are compiled and skipped.
+      - name: Install the SDK this repo pins, and the net8.0 runtime
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
+          dotnet-version: '8.0.x'
           global-json-file: global.json
 
       # Printed because the generator's behavior depends on it, and "which SDK
@@ -102,7 +107,7 @@ jobs:
       - name: Report the toolchain
         run: dotnet --info
 
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ${{ github.workspace }}/.nuget/packages
           key: nuget-${{ matrix.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
@@ -136,7 +141,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: test-results-${{ matrix.os }}-${{ matrix.configuration }}
           path: ${{ github.workspace }}/test-results
@@ -148,9 +153,9 @@ jobs:
     needs: build
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           global-json-file: global.json
 
@@ -161,10 +166,12 @@ jobs:
       - name: Pack
         run: dotnet pack -c Release -o ${{ github.workspace }}/artifacts
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: packages
-          path: ${{ github.workspace }}/artifacts/*.nupkg
+          path: |
+            ${{ github.workspace }}/artifacts/*.nupkg
+            ${{ github.workspace }}/artifacts/*.snupkg
 
   publish:
     name: publish
@@ -183,12 +190,12 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: packages
           path: artifacts
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: '10.0.x'
 
@@ -204,4 +211,53 @@ jobs:
           dotnet nuget push "artifacts/*.nupkg"
           --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
           --api-key ${{ secrets.GITHUB_TOKEN }}
+          --skip-duplicate
+          --no-symbols
+
+  release:
+    name: release
+    # A tag, from this repository only. nuget.org is permanent: a version pushed
+    # there cannot be replaced, only delisted, so this must never run by accident.
+    if: startsWith(github.ref, 'refs/tags/v') && !github.event.repository.fork
+    needs: pack
+    runs-on: ubuntu-latest
+
+    # Set this environment up with a required reviewer. It is the one approval
+    # gate between a tag and a permanent public artifact.
+    environment: nuget.org
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # A tag that disagrees with <Version> publishes something nobody asked
+      # for, under a number that does not match the release notes.
+      - name: The tag must name the version being packed
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props | head -1)
+          if [ "$tag" != "$version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match <Version> $version." >&2
+            echo "Move one to agree with the other; do not publish the difference." >&2
+            exit 1
+          fi
+          echo "Tag and version agree on $version."
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: packages
+          path: artifacts
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # The same bytes the matrix tested and `pack` produced, symbols included.
+      - name: Push to nuget.org
+        run: >-
+          dotnet nuget push "artifacts/*.nupkg"
+          --source https://api.nuget.org/v3/index.json
+          --api-key ${{ secrets.NUGET_API_KEY }}
           --skip-duplicate

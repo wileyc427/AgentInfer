@@ -35,7 +35,7 @@
       and watching it would make every bump a change demanding a bump. So a
       package property edited here — Authors, a new global property — is on you.
     -->
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Authors>wileyc427</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/wileyc427/AgentInfer</RepositoryUrl>
