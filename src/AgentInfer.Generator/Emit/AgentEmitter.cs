@@ -274,10 +274,9 @@ internal static class AgentEmitter
         code.AppendLine("        };");
         code.AppendLine();
 
-        // An agent with tools uses them on every generation method. The
-        // alternative — tools only on methods returning string — makes whether
-        // a method can call a tool depend on its return type, which is a rule
-        // nobody would guess.
+        // An agent with tools uses them on every generation method. Restricting
+        // them to methods returning string would make whether a method can call
+        // a tool depend on its return type.
         var tools = hasTools ? $", _tools, _authorizer, {method.MaxIterations}" : string.Empty;
 
         // Resolved per call rather than cached, so a router backed by scoped DI
@@ -295,11 +294,9 @@ internal static class AgentEmitter
         }
         else if (hasContract)
         {
-            // No pragma. The contract carries a JsonTypeInfo from a
-            // source-generated context and checks its own values, so there is
-            // no reflection on this path for an analyzer to warn about — and
-            // nothing to suppress, which is the point. A suppression asserts
-            // "analysed, and safe"; this path actually is.
+            // No pragma: the contract carries a JsonTypeInfo from a
+            // source-generated context and checks its own values, so there is no
+            // reflection here for an analyzer to warn about.
             var contract = method.Name + "Contract.Instance";
 
             if (hasTools)
