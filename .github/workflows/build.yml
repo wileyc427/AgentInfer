@@ -38,6 +38,45 @@ env:
   NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 
 jobs:
+  # Cheap, and first, because the thing it catches is silent.
+  #
+  # `dotnet nuget push --skip-duplicate` in the publish job treats an
+  # already-published version as success, so a change that does not raise
+  # <Version> publishes nothing and reports green. Consumers keep restoring the
+  # previous assembly, and the symptom arrives in their repository rather than
+  # this one: a consumer restoring an Agentry that has never heard of a feature
+  # sitting in this main.
+  #
+  # It runs on pull requests too, which is the point: a missing bump should stop
+  # at review rather than turn main red after the merge.
+  version:
+    name: version
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The guard diffs against the default branch, which a shallow clone
+          # does not have. Without this it fails to resolve the base and exits 2
+          # — loud, but for the wrong reason.
+          fetch-depth: 0
+
+      - name: A change to what ships must move the version
+        run: |
+          # On the default branch the question is what this push added to it, so
+          # the base is where it was. Anywhere else the question is what the
+          # branch adds, so the base is the default branch — comparing against
+          # the previous push instead would let a branch pass by touching src in
+          # one commit and nothing in the next.
+          if [ "$GITHUB_REF" = "refs/heads/${{ github.event.repository.default_branch }}" ] \
+             && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            base="${{ github.event.before }}"
+          else
+            base="origin/${{ github.event.repository.default_branch }}"
+          fi
+
+          .github/version-guard.sh "$base"
+
   build:
     name: ${{ matrix.os }} / ${{ matrix.configuration }}
     runs-on: ${{ matrix.os }}
@@ -132,7 +171,10 @@ jobs:
     # Only from main, and only from this repository — a fork's push must not be
     # able to put a package under this owner's namespace.
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' && !github.event.repository.fork
-    needs: pack
+    # `version` as well as `pack`: --skip-duplicate below makes a re-push of an
+    # existing version a silent success, so the check that the version moved has
+    # to be a gate rather than a note somebody reads afterwards.
+    needs: [pack, version]
     runs-on: ubuntu-latest
 
     # Narrower than the workflow default, and the only job that widens it.
