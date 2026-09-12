@@ -1,4 +1,4 @@
-using Agentry;
+using AgentInfer;
 
 namespace Incident;
 
@@ -42,7 +42,7 @@ public enum Team
 
 /// <summary>What one service's telemetry turned out to show.</summary>
 /// <remarks>
-/// Agentry's own bounds rather than DataAnnotations, and the reason is
+/// AgentInfer's own bounds rather than DataAnnotations, and the reason is
 /// specific: <c>MaxLengthAttribute</c>'s constructor carries
 /// <c>[RequiresUnreferencedCode]</c>, because <c>ValidationAttribute.IsValid</c>
 /// inspects arbitrary types. Writing one makes the assembly that holds this

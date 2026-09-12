@@ -60,7 +60,7 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the maintainer privately, through GitHub's
-[private reporting](https://github.com/wileyc427/OO-Agents-Dotnet/security/advisories/new)
+[private reporting](https://github.com/wileyc427/AgentInfer/security/advisories/new)
 or by contacting [@wileyc427](https://github.com/wileyc427) directly.
 
 All complaints will be reviewed and investigated promptly and fairly. All

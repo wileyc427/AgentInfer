@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
-using Agentry;
+using AgentInfer;
 
 namespace Intake;
 
@@ -12,7 +12,7 @@ namespace Intake;
 /// <para>
 /// Note whose generator this is. <c>JsonSerializerContext</c> is emitted by
 /// <c>System.Text.Json</c>, which ships in the SDK — nothing to do with
-/// Agentry's generator, which this project does not use for its agent. Six
+/// AgentInfer's generator, which this project does not use for its agent. Six
 /// lines, and the reflective binding that made the typed path untrimmable is
 /// gone.
 /// </para>

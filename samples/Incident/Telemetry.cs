@@ -1,4 +1,4 @@
-using Agentry;
+using AgentInfer;
 
 namespace Incident;
 
@@ -15,7 +15,7 @@ namespace Incident;
 /// </para>
 /// <para>
 /// Both are offered anyway, because the comparison is the point: the
-/// <c>agentry.tool.calls_per_turn</c> histogram is how you find out which one
+/// <c>agentinfer.tool.calls_per_turn</c> histogram is how you find out which one
 /// a real model reaches for, and "design a better tool" is the fix that makes
 /// the argument for generated code evaporate.
 /// </para>

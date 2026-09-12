@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-using Agentry;
+using AgentInfer;
 
 namespace Ledger;
 

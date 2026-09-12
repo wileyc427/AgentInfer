@@ -13,7 +13,7 @@ labels: bug
 <!-- The interface with its attributes is usually enough. If the generator is
      involved, the generated file is more useful than a description of it:
 
-       samples/<name>/obj/generated/Agentry.Generator/Agentry.Generator.AgentGenerator/
+       samples/<name>/obj/generated/AgentInfer.Generator/AgentInfer.Generator.AgentGenerator/
 -->
 
 ```csharp
@@ -28,6 +28,6 @@ labels: bug
 
 ## Versions
 
-- Agentry:
+- AgentInfer:
 - `dotnet --version`:
 - OS:

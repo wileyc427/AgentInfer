@@ -11,7 +11,7 @@ namespace Ledger;
 /// The dependency only runs one way.
 /// </para>
 /// <para>
-/// What is generated is <c>AgentryRoles.All</c>: the set of roles actually
+/// What is generated is <c>AgentInferRoles.All</c>: the set of roles actually
 /// asked for, which is the other half. These constants make a rename a rename;
 /// that array makes a missing registration a startup failure.
 /// </para>

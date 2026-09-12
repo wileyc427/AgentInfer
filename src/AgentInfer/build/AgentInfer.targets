@@ -1,0 +1,39 @@
+<Project>
+
+  <!--
+    Ships in the package so that [Agent(PromptFile = "...")] works without a
+    project-file edit. The compiler only sees files listed in AdditionalFiles,
+    and a prompt file sitting visibly in the project that the build cannot see
+    is the confusing half of AIN007 — worth spending a shipped targets file to
+    avoid.
+
+    A .targets rather than a .props, deliberately: props are imported before the
+    project body and targets after, so only here can the Exclude below see the
+    AdditionalFiles the project declared for itself and avoid duplicating them.
+
+    buildTransitive so it applies to a project that references AgentInfer directly
+    and to one that picks it up through another package. Like the analyzer, none
+    of this reaches a project that references AgentInfer by ProjectReference — see
+    the note in samples/Ledger/Ledger.csproj.
+  -->
+
+  <PropertyGroup>
+    <AgentInferIncludePromptFiles Condition="'$(AgentInferIncludePromptFiles)' == ''">true</AgentInferIncludePromptFiles>
+    <AgentInferPromptFiles Condition="'$(AgentInferPromptFiles)' == ''">Prompts/**/*.md</AgentInferPromptFiles>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(AgentInferIncludePromptFiles)' == 'true'">
+    <AdditionalFiles Include="$(AgentInferPromptFiles)" Exclude="@(AdditionalFiles)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Belt and braces: the SDK already makes ProjectDir visible to analyzers.
+      Repeating it costs a line, and without it the generator falls back to
+      matching prompt paths by suffix — which still works, and is ambiguous the
+      moment two directories hold a file of the same name.
+    -->
+    <CompilerVisibleProperty Include="ProjectDir" />
+  </ItemGroup>
+
+</Project>

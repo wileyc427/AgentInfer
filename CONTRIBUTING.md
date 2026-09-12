@@ -58,7 +58,7 @@ Changes to docs, tests and samples do not need one.
 
 ## Working on the generator
 
-`Agentry.Generator` targets **netstandard2.0** and Roslyn **4.14.0**, and
+`AgentInfer.Generator` targets **netstandard2.0** and Roslyn **4.14.0**, and
 neither is a preference:
 
 - A generator is a plugin loaded into the compiler, and the compiler runs on
@@ -73,12 +73,12 @@ samples set `EmitCompilerGeneratedFiles`, so what the generator produced is on
 disk after a build:
 
 ```
-samples/Ledger/obj/generated/Agentry.Generator/Agentry.Generator.AgentGenerator/
+samples/Ledger/obj/generated/AgentInfer.Generator/AgentInfer.Generator.AgentGenerator/
 ```
 
 ### Adding a diagnostic
 
-New rule ids go in `src/Agentry.Generator/AnalyzerReleases.Unshipped.md`, and
+New rule ids go in `src/AgentInfer.Generator/AnalyzerReleases.Unshipped.md`, and
 the build fails without the entry. That is deliberate: a rule id that changes
 meaning between versions silently reclassifies somebody else's build. Entries
 move to `AnalyzerReleases.Shipped.md` when a version ships, and never change

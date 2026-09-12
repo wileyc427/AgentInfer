@@ -1,4 +1,4 @@
-# Agentry
+# AgentInfer
 
 Object-oriented agents for .NET. An agent is an interface, its prompt is an
 attribute, and a Roslyn generator writes the implementation at build time.
@@ -49,9 +49,9 @@ and the rule below about features that cannot be diagnosed at compile time.
 
 | Package | What it is |
 | --- | --- |
-| `Agentry.Abstractions` | The attributes. netstandard2.0, zero dependencies |
-| `Agentry.Generator` | The Roslyn incremental generator. Not published on its own — it ships inside `Agentry` under `analyzers/dotnet/cs`, so one `PackageReference` is the whole install |
-| `Agentry` | The runtime generated code calls into |
+| `AgentInfer.Abstractions` | The attributes. netstandard2.0, zero dependencies |
+| `AgentInfer.Generator` | The Roslyn incremental generator. Not published on its own — it ships inside `AgentInfer` under `analyzers/dotnet/cs`, so one `PackageReference` is the whole install |
+| `AgentInfer` | The runtime generated code calls into |
 
 ## The two decisions worth knowing
 
@@ -72,22 +72,22 @@ constant — see [Prompts in files](#prompts-in-files).
 
 | Rule | Replaces |
 | --- | --- |
-| `AGT001` Agent requires a prompt | an f-string is not a docstring, so you silently inherit the framework's internal prompt |
-| `AGT002` Method requires `[Prompt]` | an empty task prompt; the method behaves almost right |
-| `AGT003` Must return `Task<T>` | a return annotation the strategy cannot satisfy, discovered after paying for a call |
-| `AGT004` CodeAct is not implemented | an undecorated method silently executing generated code |
-| `AGT005` Unsupported tool parameter | a model sending a shape the parameter cannot take, learned from a trace |
-| `AGT006` Tool requires `[RequiresPermission]` | `@hidden`, which keeps a method out of the docs and leaves it callable |
-| `AGT007` `[Model]` requires a non-empty role | a role that silently resolves to nothing and routes to the default model |
-| `AGT008` Prompt file is not in `AdditionalFiles` | a prompt file the compiler cannot see, sitting visibly in the project |
-| `AGT009` Both a prompt and a `PromptFile` | two sources for one string, one of them stale, neither obviously the winner |
-| `AGT010` Prompt file matches more than one entry | a path that names two files and picks one of them quietly |
-| `AGT011` Flags enum has no schema | `"Read, Write"` — a reply that reads correctly and binds to nothing |
-| `AGT012` `[AgentTools]` with no tools | an invoker that offers a model nothing, read as an agent that never calls one |
-| `AGT013` `[AgentryJson]` is not a context | a cast error inside a generated file you cannot open |
-| `AGT014` Return type not serialized | a null `JsonTypeInfo` on the first call |
-| `AGT015` Property bounded twice | two values under one schema keyword, silently |
-| `AGT016` Tool result cannot be rendered | a reflective serializer, one line below the typed binding |
+| `AIN001` Agent requires a prompt | an f-string is not a docstring, so you silently inherit the framework's internal prompt |
+| `AIN002` Method requires `[Prompt]` | an empty task prompt; the method behaves almost right |
+| `AIN003` Must return `Task<T>` | a return annotation the strategy cannot satisfy, discovered after paying for a call |
+| `AIN004` CodeAct is not implemented | an undecorated method silently executing generated code |
+| `AIN005` Unsupported tool parameter | a model sending a shape the parameter cannot take, learned from a trace |
+| `AIN006` Tool requires `[RequiresPermission]` | `@hidden`, which keeps a method out of the docs and leaves it callable |
+| `AIN007` `[Model]` requires a non-empty role | a role that silently resolves to nothing and routes to the default model |
+| `AIN008` Prompt file is not in `AdditionalFiles` | a prompt file the compiler cannot see, sitting visibly in the project |
+| `AIN009` Both a prompt and a `PromptFile` | two sources for one string, one of them stale, neither obviously the winner |
+| `AIN010` Prompt file matches more than one entry | a path that names two files and picks one of them quietly |
+| `AIN011` Flags enum has no schema | `"Read, Write"` — a reply that reads correctly and binds to nothing |
+| `AIN012` `[AgentTools]` with no tools | an invoker that offers a model nothing, read as an agent that never calls one |
+| `AIN013` `[AgentInferJson]` is not a context | a cast error inside a generated file you cannot open |
+| `AIN014` Return type not serialized | a null `JsonTypeInfo` on the first call |
+| `AIN015` Property bounded twice | two values under one schema keyword, silently |
+| `AIN016` Tool result cannot be rendered | a reflective serializer, one line below the typed binding |
 
 Each row is a real failure from building against NOOA, moved from production to
 the build. The corollary is a rule this repo tries to hold: **a feature that
@@ -125,13 +125,13 @@ The compiler only sees files listed in `AdditionalFiles`. The package ships a
 
 ```xml
 <!-- opt out entirely -->
-<AgentryIncludePromptFiles>false</AgentryIncludePromptFiles>
+<AgentInferIncludePromptFiles>false</AgentInferIncludePromptFiles>
 
 <!-- or point it somewhere else -->
-<AgentryPromptFiles>Agents/**/*.prompt</AgentryPromptFiles>
+<AgentInferPromptFiles>Agents/**/*.prompt</AgentInferPromptFiles>
 ```
 
-Anything outside that glob needs a line in the project file, and `AGT008` says
+Anything outside that glob needs a line in the project file, and `AIN008` says
 so with the line to paste. Paths in the attribute are relative to the project
 directory; the generator resolves them against `ProjectDir`, which the SDK
 already makes visible to analyzers.
@@ -325,12 +325,12 @@ a signal rather than boilerplate.
 
 Two hops, and the library owns only one. A role resolves to an `AgentRunner`;
 the runner already knows its model, because the `IChatClient` was built with it.
-There is no `"accurate"` → `"claude-sonnet-5"` table inside Agentry — that
+There is no `"accurate"` → `"claude-sonnet-5"` table inside AgentInfer — that
 string is deployment configuration.
 
 ```json
 {
-  "Agentry": {
+  "AgentInfer": {
     "DefaultProvider": "local",
     "Providers": {
       "local":  { "Endpoint": "http://localhost:11434/v1" },
@@ -345,8 +345,8 @@ string is deployment configuration.
 ```
 
 ```csharp
-services.AddAgentryModels(configuration, (binding, sp) => ClientFor(binding))
-        .ValidateRoles(AgentryRoles.All);
+services.AddAgentInferModels(configuration, (binding, sp) => ClientFor(binding))
+        .ValidateRoles(AgentInferRoles.All);
 ```
 
 **Roles can live on different providers.** A local model for classification and
@@ -357,7 +357,7 @@ A role may be a **bare string**, meaning the default provider — most apps have
 one, and making them write an object to say so would be a tax on the common
 case. With exactly one provider configured, `DefaultProvider` is optional too.
 
-`AddAgentryModels` registers one keyed `AgentRunner` per role plus an
+`AddAgentInferModels` registers one keyed `AgentRunner` per role plus an
 `IModelRouter` over them. Clients are built **lazily and once**, so registering
 ten models opens no connections.
 
@@ -404,10 +404,10 @@ than an omission. The generator learns a role *by reading the attribute*, so a
 constant it emitted could not be used in the attribute that produced it. The
 dependency only runs one way.
 
-What *is* generated is `AgentryRoles.All`, the set of roles actually asked for:
+What *is* generated is `AgentInferRoles.All`, the set of roles actually asked for:
 
 ```csharp
-internal static class AgentryRoles
+internal static class AgentInferRoles
 {
     public static readonly string[] All = ["accurate"];
 }
@@ -552,11 +552,11 @@ non-comment lines for two methods and five tools:
 | Dispatch switch — typed argument binding | ~45 | Derived from the method signatures |
 | `ResponseSchema` for `Verdict` | one string | Derived from the record and its `[Range]` |
 
-The value is in the derived two-thirds. And the diagnostics agree: AGT001,
-AGT002, AGT004, AGT007 and AGT008–010 police hazards that **only exist because
+The value is in the derived two-thirds. And the diagnostics agree: AIN001,
+AIN002, AIN004, AIN007 and AIN008–010 police hazards that **only exist because
 of the attribute surface** — write the class and the hazard and the rule
-disappear together. The rules that survive into a hand-written world are AGT005,
-AGT006 and AGT011, which are the schema and permission rules. The two arguments
+disappear together. The rules that survive into a hand-written world are AIN005,
+AIN006 and AIN011, which are the schema and permission rules. The two arguments
 land in the same place, which is why there is an attribute for taking the tools
 half alone:
 
@@ -598,7 +598,7 @@ these cannot be declared at all:
 `samples/Intake` is all three, and it states its own costs rather than only its
 benefits: you write the `IReplyContract` — schema, `JsonTypeInfo` and value rule
 — for every return type, and nothing checks the schema still matches the record.
-`AgentryRoles.All` is replaced by an array somebody maintains, so a role used in
+`AgentInferRoles.All` is replaced by an array somebody maintains, so a role used in
 code but missing from it validates clean and fails on the call that needs it.
 
 What it does **not** cost is anything to do with trimming. The hand-written
@@ -666,7 +666,7 @@ reports success, on precisely the value a model is most likely to get wrong.
 [JsonSerializable(typeof(Verdict))]
 internal partial class LedgerJson : JsonSerializerContext;
 
-[assembly: AgentryJson(typeof(LedgerJson))]
+[assembly: AgentInferJson(typeof(LedgerJson))]
 ```
 
 Six lines, and they cannot be emitted for you. **Roslyn generators do not
@@ -682,8 +682,8 @@ opt-in if something opts out.
 
 Two diagnostics keep the halves lined up, and they exist because the generator
 can read the attributes driving the *other* generator even though it cannot see
-its output. `AGT013` catches `[AgentryJson]` pointing at something that is not a
-context. `AGT014` catches a return type the context does not serialize:
+its output. `AIN013` catches `[AgentInferJson]` pointing at something that is not a
+context. `AIN014` catches a return type the context does not serialize:
 
 > `'IAnalyst.SummariseAsync' returns 'Summary', which 'LedgerJson' does not
 > serialize. Add [JsonSerializable(typeof(Summary))] to it.`
@@ -724,7 +724,7 @@ picks a converter from the run-time type.
 
 ```csharp
 // scalar, enum, or an array of those — the compiler picks the overload
-return global::Agentry.ToolResult.Render(result);
+return global::AgentInfer.ToolResult.Render(result);
 
 // anything richer — a JsonTypeInfo from the declared context
 return JsonSerializer.Serialize(result, (JsonTypeInfo<IReadOnlyList<CategorySummary>>)…);
@@ -735,7 +735,7 @@ The overload set is deliberately the same set `SchemaWriter` accepts as a tool
 than anything a parameter may be is a signal the tool is returning a document
 rather than an answer.
 
-With neither available it is `AGT016`, an error rather than a reflective
+With neither available it is `AIN016`, an error rather than a reflective
 fallback — and the asymmetry with the reply path is deliberate. A reply type is
 one per method and visible in the signature; tools are a menu that grows, and a
 silent fallback is exactly how the parameter schemas would have rotted if they
@@ -773,18 +773,18 @@ were right there.
 
 | Instrument | |
 | --- | --- |
-| `agentry.workflow.operations` | histogram — generation method calls per scope |
-| `agentry.workflow.requests` | histogram — requests actually sent |
-| `agentry.workflow.duration` | histogram — seconds |
+| `agentinfer.workflow.operations` | histogram — generation method calls per scope |
+| `agentinfer.workflow.requests` | histogram — requests actually sent |
+| `agentinfer.workflow.duration` | histogram — seconds |
 
 Scopes nest and counts roll up, so an orchestration cannot look cheap by hiding
 its work one level down. Per-call spans nest under the scope's span, under the
-same `Agentry` source.
+same `AgentInfer` source.
 
 Two decisions in there worth stating, because both went the less obvious way.
 
 **The counter is a `DelegatingChatClient` the runner puts around its own
-client**, not something a host registers. An `AddAgentryBudget()` a consumer
+client**, not something a host registers. An `AddAgentInferBudget()` a consumer
 wires into their `IChatClient` pipeline is more idiomatic and has one fatal
 property: forget it, and `Begin("x", maxRequests: 20)` compiles, reads
 correctly, and does nothing. It also has to be a decorator rather than a check
@@ -803,7 +803,7 @@ flows. Opened without a bound, a scope changes nothing at all.
 > `FunctionInvokingChatClient` in a `using` per call — so **every tool-using
 > call was closing the caller's `IChatClient`**. The ledger sample never saw it
 > because its two calls use different clients, and a fake with a no-op
-> `Dispose` cannot tell. On a host where `AddAgentryModels` shares one client
+> `Dispose` cannot tell. On a host where `AddAgentInferModels` shares one client
 > per role, the second call through that role fails. Ownership now stops at the
 > decorator: a runner is handed a client, it does not create one, and it must
 > not close one.
@@ -816,14 +816,14 @@ Every generation method logs what the turn actually cost:
 ILedger.SummarizeAsync: 1 of 2 tools offered, 4 call(s) — TotalFor×4
 ```
 
-and records three instruments under the `Agentry` meter, so the same numbers
+and records three instruments under the `AgentInfer` meter, so the same numbers
 reach whatever OpenTelemetry pipeline the host already runs:
 
 | Instrument | |
 | --- | --- |
-| `agentry.tool.calls_per_turn` | histogram — **the number that decides** |
-| `agentry.tools.offered` | histogram — how much permissions narrowed the menu |
-| `agentry.tool.calls` | counter, tagged by tool and outcome |
+| `agentinfer.tool.calls_per_turn` | histogram — **the number that decides** |
+| `agentinfer.tools.offered` | histogram — how much permissions narrowed the menu |
+| `agentinfer.tool.calls` | counter, tagged by tool and outcome |
 
 Letting a model compose tool calls in code it writes buys exactly one thing —
 fewer round trips — at the cost of executing that code. Obviously worth it at
@@ -912,7 +912,7 @@ public sealed record Verdict(
     [property: Sized(Min = 1)] string[] Problems); // items
 ```
 
-`[Bounded]` and `[Sized]` live in `Agentry.Abstractions` — netstandard2.0, no
+`[Bounded]` and `[Sized]` live in `AgentInfer.Abstractions` — netstandard2.0, no
 package references — and have no base class and no behaviour. They are facts the
 generator reads at compile time and metadata nothing needs at run time.
 `[Range]`, `[MinLength]` and `[MaxLength]` still work and are still the right
@@ -928,7 +928,7 @@ condition that is always true.
 One reader serves both families and feeds both the schema and the check. Two
 readers would be two chances to disagree about what a bound means, and the
 disagreement presents as a model told one thing and held to another. Declaring
-both on one property is `AGT015` rather than a precedence rule.
+both on one property is `AIN015` rather than a precedence rule.
 
 **The model was never told the schema.** With binding enforced, the next run
 failed with `missing required properties: 'approved', 'score', 'problems'` and
@@ -1015,7 +1015,7 @@ The sample reads `samples/Ledger/appsettings.json`:
 
 ```json
 {
-  "Agentry": {
+  "AgentInfer": {
     "DefaultProvider": "local",
     "DefaultModel": "qwen3:latest",
 
@@ -1054,9 +1054,9 @@ Two flags worth knowing while testing:
 dotnet run --project samples/Incident -- --live --metrics
 ```
 
-`--metrics` subscribes to the `Agentry` meter and prints each instrument's
+`--metrics` subscribes to the `AgentInfer` meter and prints each instrument's
 distribution at exit. Nothing listens to a `Meter` by default, so without it
-`agentry.tool.calls_per_turn` — the number that decides whether a workload ever
+`agentinfer.tool.calls_per_turn` — the number that decides whether a workload ever
 needs generated code — is recorded into a void. A real host points
 OpenTelemetry at the meter instead.
 
@@ -1066,7 +1066,7 @@ model while everything else stays put — switch its `Provider` to `openai` and 
 says where the key comes from.
 
 Environment variables **fill in what the file omits**, rather than overriding it:
-`AGENTRY__MODELS__SMALLLLM__MODEL` is read only if `Models:smallllm:Model` is
+`AGENTINFER__MODELS__SMALLLLM__MODEL` is read only if `Models:smallllm:Model` is
 absent from `appsettings.json`. That follows from the inverted precedence above,
 and it is the direction that matters — a committed file cannot blank a credential
 the environment supplies, and it also cannot be quietly redirected by an export
@@ -1078,14 +1078,14 @@ the environment or user-secrets.
 
 The sample sets `EmitCompilerGeneratedFiles`, so what the generator produced is
 readable at
-`samples/Ledger/obj/generated/Agentry.Generator/Agentry.Generator.AgentGenerator/`.
+`samples/Ledger/obj/generated/AgentInfer.Generator/AgentInfer.Generator.AgentGenerator/`.
 Reading it is the fastest way to understand the library, and it is how the
 string-routing bug in the first draft was found.
 
 ## Four gotchas that cost time here
 
-**Analyzers do not flow transitively through `ProjectReference`.** `Agentry`
-references the generator as an `Analyzer`, but a project referencing `Agentry`
+**Analyzers do not flow transitively through `ProjectReference`.** `AgentInfer`
+references the generator as an `Analyzer`, but a project referencing `AgentInfer`
 gets the runtime and no generator. It works through a NuGet package; inside
 this repo every consuming project references the generator again explicitly.
 See `samples/Ledger/Ledger.csproj`.

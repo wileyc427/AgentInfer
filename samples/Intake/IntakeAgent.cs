@@ -1,5 +1,5 @@
 using System.ComponentModel.DataAnnotations;
-using Agentry;
+using AgentInfer;
 
 namespace Intake;
 
@@ -58,14 +58,14 @@ public interface IIntake
 ///   <item>The response schema below is written by hand. It is derived from
 ///   <see cref="Extract"/> and nothing checks that it still matches — the one
 ///   line in this file that rots.</item>
-///   <item>No <c>AgentryRoles.All</c>. That array is generated from
+///   <item>No <c>AgentInferRoles.All</c>. That array is generated from
 ///   <c>[Model]</c> attributes, and there are none here, so the roles are
 ///   declared in <see cref="IntakeRoles"/> and startup validation checks what
 ///   somebody remembered to put there.</item>
 ///   <item>The trimming annotations are written out rather than emitted — and
 ///   propagated rather than suppressed, which the generated path does not yet
 ///   do.</item>
-///   <item>No AGT001–AGT004: nothing checks that a prompt is non-empty or that
+///   <item>No AIN001–AIN004: nothing checks that a prompt is non-empty or that
 ///   the return type is one the runtime can bind. Most of those rules police
 ///   hazards the attributes introduce, but not all.</item>
 /// </list>
@@ -229,7 +229,7 @@ public sealed class IntakeAgent : IIntake
 /// </summary>
 /// <remarks>
 /// Hand-written in both halves here, and that is a real loss. With
-/// <c>[Model]</c> attributes the generator emits <c>AgentryRoles.All</c> from
+/// <c>[Model]</c> attributes the generator emits <c>AgentInferRoles.All</c> from
 /// the roles actually asked for, so a role nobody registered is a startup
 /// failure. Written by hand, <see cref="All"/> is what somebody remembered to
 /// put in it — and a role used in a method but missing from this array

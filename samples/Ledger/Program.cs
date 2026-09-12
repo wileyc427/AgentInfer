@@ -1,7 +1,7 @@
 using System.ClientModel;
 using System.Net.Sockets;
 
-using Agentry;
+using AgentInfer;
 
 using Ledger;
 
@@ -39,21 +39,21 @@ using var logs = LoggerFactory.Create(builder => builder
 
 // Nothing listens to a Meter by default, so every instrument in this library
 // records into a void. --metrics prints the distributions at exit; a real host
-// points OpenTelemetry at the "Agentry" meter instead.
+// points OpenTelemetry at the "AgentInfer" meter instead.
 var metrics = args.Contains("--metrics", StringComparer.Ordinal) ? new Meters() : null;
 
-// AddAgentryModels registers one keyed AgentRunner per configured role and an
+// AddAgentInferModels registers one keyed AgentRunner per configured role and an
 // IModelRouter over them. ValidateRoles then fails HERE — at startup — if any
 // role the code asks for has no model configured, rather than on the first call
-// that needs it. AgentryRoles.All is generated from the [Model] attributes, so
+// that needs it. AgentInferRoles.All is generated from the [Model] attributes, so
 // the check is against the roles actually used.
 var services = new ServiceCollection();
 services.AddSingleton<ILoggerFactory>(logs);
 services.AddLogging();
 
-var agentry = services
-    .AddAgentryModels(configuration, (binding, _) => models.For(binding))
-    .ValidateRoles(AgentryRoles.All);
+var agentInfer = services
+    .AddAgentInferModels(configuration, (binding, _) => models.For(binding))
+    .ValidateRoles(AgentInferRoles.All);
 
 var provider = services.BuildServiceProvider();
 var router = provider.GetRequiredService<IModelRouter>();
@@ -63,8 +63,8 @@ var runner = new AgentRunner(models.Default(), logs.CreateLogger<AgentRunner>())
 
 // Which model each method will actually reach, and from where. A run that does
 // not say this is a run you cannot argue with when the answer looks wrong.
-Console.WriteLine($"default:  {Configured(configuration, "Agentry:DefaultModel")} at {models.EndpointOf(models.DefaultProvider)}");
-foreach (var (role, binding) in agentry.Models)
+Console.WriteLine($"default:  {Configured(configuration, "AgentInfer:DefaultModel")} at {models.EndpointOf(models.DefaultProvider)}");
+foreach (var (role, binding) in agentInfer.Models)
 {
     Console.WriteLine(
         $"role {role}: {binding.Model} at {binding.Provider.Endpoint}  (key: {binding.Provider.KeySource})");
@@ -135,14 +135,14 @@ static string Explain(Exception error)
     {
         SocketException or HttpRequestException =>
             $"Could not reach the endpoint ({cause.Message}).\n" +
-            "Start it with `ollama serve`, or change Agentry:Endpoint in appsettings.json.",
+            "Start it with `ollama serve`, or change AgentInfer:Endpoint in appsettings.json.",
 
         ClientResultException { Status: 401 or 403 } =>
             "The endpoint refused the credential. Set OPENAI_API_KEY, or clear it for a local model.",
 
         ClientResultException { Status: 404 } =>
             "The endpoint answered but does not have that model. Check `ollama list` and "
-            + "Agentry:DefaultModel in appsettings.json.",
+            + "AgentInfer:DefaultModel in appsettings.json.",
 
         _ => $"{cause.GetType().Name}: {cause.Message}",
     };

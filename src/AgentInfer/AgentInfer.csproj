@@ -1,0 +1,77 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Runtime for AgentInfer. Generated agents call into this.</Description>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!--
+      The generator travels with the runtime package, so referencing AgentInfer is
+      all a consumer needs. That claim is not free: OutputItemType="Analyzer"
+      loads the generator into THIS project's compilation and nothing more, and
+      ReferenceOutputAssembly="false" keeps it out of the dependency list, so
+      without the target below the package ships a runtime with no generator and
+      every consumer sees "type not found". Verified by opening the nupkg, which
+      is the only way to catch it.
+    -->
+    <TargetsForTfmSpecificContentInPackage>
+      $(TargetsForTfmSpecificContentInPackage);PackGenerator
+    </TargetsForTfmSpecificContentInPackage>
+  </PropertyGroup>
+
+  <Target Name="PackGenerator" DependsOnTargets="ResolveReferences">
+    <ItemGroup>
+      <!--
+        Taken from @(Analyzer) rather than from a hardcoded bin path, so it
+        cannot drift from the configuration and target framework actually built.
+        The filter matters: @(Analyzer) also holds the analyzers that arrive
+        with Roslyn's own packages, and packing those would ship somebody else's
+        assemblies inside this one.
+      -->
+      <_AgentInferGenerator Include="@(Analyzer)" Condition="'%(Filename)' == 'AgentInfer.Generator'" />
+      <TfmSpecificPackageFile Include="@(_AgentInferGenerator)" PackagePath="analyzers/dotnet/cs" />
+    </ItemGroup>
+
+    <!--
+      The failure this replaces is a package that restores, builds, and produces
+      "type or namespace AdvisorAgent could not be found" in somebody else's
+      project. Breaking the pack is the cheapest place to find out.
+    -->
+    <Error Condition="'@(_AgentInferGenerator)' == ''"
+           Text="AgentInfer.Generator.dll is not in @(Analyzer), so this package would ship a runtime with no generator." />
+  </Target>
+
+  <ItemGroup>
+    <ProjectReference Include="../AgentInfer.Abstractions/AgentInfer.Abstractions.csproj" />
+    <ProjectReference Include="../AgentInfer.Generator/AgentInfer.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      ToolCallLog.Record stays internal: consumers read the log, they never
+      write it. Widening the API so a test can reach it would be letting the
+      test shape the surface.
+    -->
+    <InternalsVisibleTo Include="AgentInfer.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Update, not Include: the SDK's default None glob already has this file, and
+      claiming it twice is NETSDK1022. Pack sends it to buildTransitive/, which
+      NuGet imports for direct and transitive consumers alike.
+    -->
+    <None Update="build/AgentInfer.targets" Pack="true" PackagePath="buildTransitive/AgentInfer.targets" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+</Project>

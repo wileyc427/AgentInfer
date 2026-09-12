@@ -1,6 +1,6 @@
 using System.ClientModel;
 
-using Agentry;
+using AgentInfer;
 
 using Incident;
 
@@ -42,7 +42,7 @@ var configuration = new ConfigurationBuilder()
     .AddJsonFile("appsettings.Development.json", optional: true)
     .Build();
 
-var section = configuration.GetSection("Agentry");
+var section = configuration.GetSection("AgentInfer");
 
 string EndpointOf(string provider) =>
     section[$"Providers:{provider}:Endpoint"] ?? "http://localhost:11434/v1";
@@ -57,7 +57,7 @@ using var logs = LoggerFactory.Create(builder => builder
 
 // Nothing listens to a Meter by default, so every instrument in this library
 // records into a void. --metrics prints the distributions at exit; a real host
-// points OpenTelemetry at the "Agentry" meter instead.
+// points OpenTelemetry at the "AgentInfer" meter instead.
 var metrics = args.Contains("--metrics", StringComparer.Ordinal) ? new Meters() : null;
 
 // One scripted instance, shared: it counts review rounds, so the critic
@@ -78,9 +78,9 @@ services.AddLogging();
 // ValidateRoles fails here, at startup, if a role the code asks for has no
 // model configured — rather than on the first request that needs it. The array
 // is generated from the [Model] attributes actually present.
-var agentry = services
-    .AddAgentryModels(configuration, (binding, _) => ClientFor(binding))
-    .ValidateRoles(AgentryRoles.All);
+var agentInfer = services
+    .AddAgentInferModels(configuration, (binding, _) => ClientFor(binding))
+    .ValidateRoles(AgentInferRoles.All);
 
 var provider = services.BuildServiceProvider();
 var router = provider.GetRequiredService<IModelRouter>();
@@ -124,8 +124,8 @@ if (live)
     // Which model each method will actually reach, and from where. A run that
     // does not say this is a run you cannot argue with when the answer looks
     // wrong.
-    Console.WriteLine($"default:  {Configured(configuration, "Agentry:DefaultModel")}");
-    foreach (var (role, binding) in agentry.Models)
+    Console.WriteLine($"default:  {Configured(configuration, "AgentInfer:DefaultModel")}");
+    foreach (var (role, binding) in agentInfer.Models)
     {
         Console.WriteLine(
             $"role {role}: {binding.Model} at {binding.Provider.Endpoint}  (key: {binding.Provider.KeySource})");

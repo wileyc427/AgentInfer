@@ -1,6 +1,6 @@
 using System.ClientModel;
 
-using Agentry;
+using AgentInfer;
 
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
@@ -30,7 +30,7 @@ namespace Ledger;
 /// </remarks>
 internal sealed class Models(IConfiguration configuration)
 {
-    private readonly IConfigurationSection _section = configuration.GetSection("Agentry");
+    private readonly IConfigurationSection _section = configuration.GetSection("AgentInfer");
 
     /// <summary>The model used by methods that ask for no particular role.</summary>
     public string DefaultModel => _section["DefaultModel"] ?? "qwen3:latest";
