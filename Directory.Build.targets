@@ -1,20 +1,12 @@
 <Project>
 
   <!--
-    The trim and AOT analyzers, switched on where they mean something.
+    The trim and AOT analyzers, on for everything that ships.
 
-    They belong HERE and not in Directory.Build.props, and the difference is not
-    cosmetic. Directory.Build.props is imported before the project body, so
-    $(TargetFramework) is still empty when it is evaluated — and
-    IsTargetFrameworkCompatible('', 'net8.0') is false. These three properties
-    sat in that file with that condition and were never once set, in any
-    project, for the life of the repo. Every claim in the README about nothing
-    being discovered at run time was unverified, and the first thing switching
-    them on found was fourteen violations in GatedFunction.cs, the file the
-    README holds up as the reflection-free path.
-
-    Directory.Build.targets is imported after the project body, so the condition
-    is evaluated against a TargetFramework that exists.
+    Here rather than in Directory.Build.props because props is imported before
+    the project body, where $(TargetFramework) is still empty and
+    IsTargetFrameworkCompatible('', 'net8.0') is false. The condition would
+    never match and nothing would say so.
   -->
   <PropertyGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))
                             AND '$(IsPackable)' != 'false'">
@@ -24,29 +16,19 @@
   </PropertyGroup>
 
   <!--
-    Scoped to what ships. IsPackable is already false on the samples and on the
-    test projects, and it is the right line rather than a convenient one: a
-    library makes a promise to code it will never see, so its promise has to be
-    checked. An application decides for itself at publish time, and a test
-    assembly is never published at all — IL3000 on Assembly.Location in the
-    generator harness describes a deployment that will not happen.
-
-    A sample that wants the check can ask for it by setting the three
-    properties itself.
+    Scoped to what ships. A library makes a promise to code it will never see,
+    so the promise has to be checked; an application decides for itself at
+    publish time and a test assembly is never published. A sample that wants the
+    check sets the three properties itself.
   -->
 
   <!--
-    The README, inside every package that ships.
+    The README, inside every package that ships. Without PackageReadmeFile the
+    nuget.org listing is blank.
 
-    Here rather than in Directory.Build.props for the same reason as the block
-    above, and it is worth stating twice because the failure is silent both
-    times: IsPackable is set in the project body, so a condition on it in
-    Directory.Build.props reads as empty and the item lands on the samples and
-    the test projects as well.
-
-    Without PackageReadmeFile the nuget.org listing for this package is blank —
-    not sparse, blank — and the repository URL beside it is the only thing
-    telling anyone what they just found.
+    Here rather than in props for the same reason as the analyzers: IsPackable
+    is set in the project body, so a condition on it in props reads as empty and
+    the item lands on the samples and test projects too.
   -->
   <PropertyGroup Condition="'$(IsPackable)' != 'false'">
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -54,10 +36,8 @@
 
   <ItemGroup Condition="'$(IsPackable)' != 'false'">
     <!--
-      An absolute path off this file rather than a relative one. The default
-      None glob is project-directory-relative and never sees a file at the
-      repository root, so there is nothing to collide with — but a relative
-      Include here would resolve against each project directory and quietly
+      Absolute, off this file. The default None glob is project-relative and
+      never sees a file at the repository root, so a relative Include would
       match nothing.
     -->
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />

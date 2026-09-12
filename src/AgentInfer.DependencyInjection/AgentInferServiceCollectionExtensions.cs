@@ -17,9 +17,8 @@ namespace AgentInfer;
 /// </para>
 /// <para>
 /// It does not build clients. Constructing an <see cref="IChatClient"/> is
-/// provider-specific — SDK, credential type, options — and a library that
-/// guessed would be wrong for everyone but its author. The caller supplies a
-/// factory; this supplies everything the factory needs to decide.
+/// provider-specific — SDK, credential type, options — so the caller supplies a
+/// factory and this supplies everything that factory needs to decide.
 /// </para>
 /// <example>
 /// <code>
@@ -37,9 +36,8 @@ namespace AgentInfer;
 ///   }
 /// }
 /// </code>
-/// A role may be a bare string, which means the default provider. The short
-/// form staying short is the point: most apps have one provider, and making
-/// them write an object to say so would be a tax on the common case.
+/// A role may be a bare string, meaning the default provider — most
+/// deployments have one provider and should not have to say so twice.
 /// </example>
 /// </remarks>
 public static class AgentInferServiceCollectionExtensions
