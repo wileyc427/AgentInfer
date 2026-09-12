@@ -41,9 +41,29 @@ public sealed class IntakeTools
             "None"),
     };
 
-    [AgentTool("Every ticket currently waiting, oldest first.")]
+    /// <summary>
+    /// Every ticket waiting, optionally narrowed to one plan.
+    /// </summary>
+    /// <remarks>
+    /// <c>plan</c> has a default, which is the only thing that makes an
+    /// argument optional: the generated schema leaves it out of
+    /// <c>required</c>, and the dispatch switch falls back to this value when
+    /// the model omits it or sends an explicit null.
+    ///
+    /// It is here rather than in a test because the alternative was a sentinel
+    /// the model had to be told about in prose — "pass an empty string for all
+    /// plans" — and prose is the weakest place to put a rule. The scripted run
+    /// calls this with <c>{}</c> for that reason.
+    /// </remarks>
+    [AgentTool("Every ticket currently waiting, oldest first. Give a plan name to see only that plan's.")]
     [RequiresPermission("intake.read")]
-    public string[] Waiting() => [.. _tickets.Keys.Order()];
+    public string[] Waiting(string? plan = null) =>
+    [
+        .. _tickets
+            .Where(entry => plan is null || string.Equals(entry.Value.Plan, plan, StringComparison.OrdinalIgnoreCase))
+            .Select(entry => entry.Key)
+            .Order(),
+    ];
 
     [AgentTool("The full text of one ticket, with the customer and their plan.")]
     [RequiresPermission("intake.read")]
