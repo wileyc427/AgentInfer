@@ -35,4 +35,32 @@
     properties itself.
   -->
 
+  <!--
+    The README, inside every package that ships.
+
+    Here rather than in Directory.Build.props for the same reason as the block
+    above, and it is worth stating twice because the failure is silent both
+    times: IsPackable is set in the project body, so a condition on it in
+    Directory.Build.props reads as empty and the item lands on the samples and
+    the test projects as well.
+
+    Without PackageReadmeFile the nuget.org listing for this package is blank —
+    not sparse, blank — and the repository URL beside it is the only thing
+    telling anyone what they just found.
+  -->
+  <PropertyGroup Condition="'$(IsPackable)' != 'false'">
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <!--
+      An absolute path off this file rather than a relative one. The default
+      None glob is project-directory-relative and never sees a file at the
+      repository root, so there is nothing to collide with — but a relative
+      Include here would resolve against each project directory and quietly
+      match nothing.
+    -->
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
 </Project>

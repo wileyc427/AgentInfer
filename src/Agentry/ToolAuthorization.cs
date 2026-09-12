@@ -92,8 +92,15 @@ public abstract class ToolInvoker
     }
 
     /// <summary>Runs a tool by name, after checking the caller may.</summary>
+    /// <param name="name">The tool to run, as it appears in <see cref="Manifest"/>.</param>
     /// <param name="arguments">JSON object of arguments, as the model produced it.</param>
+    /// <param name="authorizer">What the current caller is allowed to do.</param>
+    /// <param name="ct">Cancels the tool, not the check.</param>
     /// <returns>The result, rendered for the model.</returns>
+    /// <exception cref="ToolDeniedException">
+    /// The caller is missing a permission the tool declares, or no tool goes by
+    /// that name.
+    /// </exception>
     public async Task<string> InvokeAsync(
         string name,
         string arguments,

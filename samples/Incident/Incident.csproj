@@ -13,6 +13,15 @@
     <!-- A sample is something to read and run, not something to ship. -->
     <IsPackable>false</IsPackable>
 
+    <!--
+      Off, against the repo-wide default. Nothing here is consumed from a
+      package, so there is no IntelliSense to serve — the only effect would be
+      turning the XML-comment warnings into build errors on a `///` above a
+      local function in top-level statements, which is a comment C# will not
+      attach to anything.
+    -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>

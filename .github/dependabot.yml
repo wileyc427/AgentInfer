@@ -1,0 +1,42 @@
+# Dependency updates.
+#
+# Grouped rather than one PR per package, because this repo's dependencies move
+# in lockstep: the Microsoft.Extensions.AI packages share a version, and the
+# Roslyn pair MUST — the generator and its tests disagreeing on a Roslyn version
+# produces errors that look like generator bugs.
+version: 2
+
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      extensions-ai:
+        patterns:
+          - "Microsoft.Extensions.AI*"
+      extensions:
+        patterns:
+          - "Microsoft.Extensions.Configuration*"
+          - "Microsoft.Extensions.DependencyInjection*"
+          - "Microsoft.Extensions.Logging*"
+      test:
+        patterns:
+          - "xunit*"
+          - "Microsoft.NET.Test.Sdk"
+    ignore:
+      # Deliberately pinned to the OLDEST supported compiler, not the newest: a
+      # generator runs inside whatever Roslyn the consumer's SDK ships, so
+      # raising this raises the minimum SDK for everyone using the library.
+      # It moves when somebody decides to move it.
+      - dependency-name: "Microsoft.CodeAnalysis.*"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns:
+          - "*"

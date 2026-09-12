@@ -12,6 +12,16 @@
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <Description>Roslyn source generator for Agentry.</Description>
+
+    <!--
+      Off, against the repo-wide default in Directory.Build.props. This assembly
+      reaches nobody as a package — it ships inside Agentry under
+      analyzers/dotnet/cs — so there is no IntelliSense to serve, and the only
+      effect of generating docs here is that the XML-comment warnings become
+      build errors on comments attached to internal model records. Which they
+      are: fifteen of them, all CS1587 and CS1573, none about a public surface.
+    -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>

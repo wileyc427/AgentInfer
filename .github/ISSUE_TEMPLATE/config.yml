@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/wileyc427/OO-Agents-Dotnet/security/advisories/new
+    about: Report privately instead. Please do not open a public issue.

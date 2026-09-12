@@ -23,8 +23,9 @@ implements the interface, and takes an `AgentRunner`. Consumers inject
 `ILedgerAnalyst`, so mocking an agent in a test needs no framework support and
 no model.
 
-Design reasoning lives in
-[`CSHARP-AGENTS-PROPOSAL.md`](https://github.com/wileyc427/desktop-toolkit/blob/main/docs/architecture/CSHARP-AGENTS-PROPOSAL.md).
+Design reasoning lives below, next to the code it argues for: the two decisions
+worth knowing, why the generator is optional, and what pointing this at a real
+model changed.
 
 ## Where it is
 
@@ -40,12 +41,11 @@ nothing is discovered at run time is checked by the build rather than asserted
 here. It was asserted here for a long time and was not true; see the third
 gotcha.
 
-**Built against.** [wow-bags](https://github.com/wileyc427/wow-bags) uses it for
-an agent over World of Warcraft capture data — thirteen tools with compile-time
-schemas, a prompt file, a typed reply, and a permission that gates nothing yet
-and is declared anyway. Optional tool parameters exist because that consumer
-needed them; see the commit, and the rule below about features that cannot be
-diagnosed at compile time.
+**Built against.** A private application uses it for an agent over World of
+Warcraft capture data — thirteen tools with compile-time schemas, a prompt file,
+a typed reply, and a permission that gates nothing yet and is declared anyway.
+Optional tool parameters exist because that consumer needed them; see the commit,
+and the rule below about features that cannot be diagnosed at compile time.
 
 | Package | What it is |
 | --- | --- |
@@ -1016,12 +1016,25 @@ The sample reads `samples/Ledger/appsettings.json`:
 ```json
 {
   "Agentry": {
-    "Endpoint": "http://localhost:11434/v1",
+    "DefaultProvider": "local",
     "DefaultModel": "qwen3:latest",
-    "Models": { "accurate": "qwen3:latest" }
+
+    "Providers": {
+      "local":  { "Endpoint": "http://localhost:11434/v1" },
+      "openai": { "Endpoint": "https://api.openai.com/v1", "ApiKeyVariable": "OPENAI_API_KEY" }
+    },
+
+    "Models": {
+      "smallllm": { "Provider": "local", "Model": "qwen3:latest" }
+    }
   }
 }
 ```
+
+A **provider** is an address and where its key lives; a **model role** is a name
+the code asks for, bound to a model on one of those providers. They are separate
+because several roles usually sit on one endpoint, and duplicating an endpoint
+per role is how two of them end up disagreeing.
 
 **The samples invert the usual precedence: a value in `appsettings` beats one in
 the environment.** That is not how a production host should be wired and it is
@@ -1047,10 +1060,17 @@ distribution at exit. Nothing listens to a `Meter` by default, so without it
 needs generated code — is recorded into a void. A real host points
 OpenTelemetry at the meter instead.
 
-Point `accurate` at something larger to give `SummarizeAsync` a better model
-while everything else stays put. Environment variables layer on top
-(`AGENTRY__MODELS__ACCURATE`), so a run can be redirected without editing a
-committed file.
+Point the `smallllm` role at something larger to give `SummarizeAsync` a better
+model while everything else stays put — switch its `Provider` to `openai` and its
+`Model` to whatever you want, and the `ApiKeyVariable` already declared there
+says where the key comes from.
+
+Environment variables **fill in what the file omits**, rather than overriding it:
+`AGENTRY__MODELS__SMALLLLM__MODEL` is read only if `Models:smallllm:Model` is
+absent from `appsettings.json`. That follows from the inverted precedence above,
+and it is the direction that matters — a committed file cannot blank a credential
+the environment supplies, and it also cannot be quietly redirected by an export
+you have forgotten about.
 
 **No credential lives in that file.** It is committed, and a plausible-looking
 value in a committed file is one somebody pastes a real key over. Keys come from
@@ -1091,6 +1111,16 @@ so a display-string comparison silently fails. Use `SpecialType`. The first
 draft did it the wrong way, compiled cleanly, and JSON-encoded every string
 argument into its own prompt.
 
+## Contributing
+
+Issues and pull requests are welcome. [`CONTRIBUTING.md`](CONTRIBUTING.md) covers
+the part that is not guessable from the tree: the SDK the build pins, the four
+things that fail in CI more often than anywhere else, when `<Version>` has to
+move, and why the generator targets the compiler versions it does.
+
+To report a vulnerability, see [`SECURITY.md`](SECURITY.md) — privately, please,
+rather than in an issue.
+
 ## License
 
-MIT.
+MIT. See [`LICENSE`](LICENSE).
