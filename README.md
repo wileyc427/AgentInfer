@@ -40,6 +40,13 @@ nothing is discovered at run time is checked by the build rather than asserted
 here. It was asserted here for a long time and was not true; see the third
 gotcha.
 
+**Built against.** [wow-bags](https://github.com/wileyc427/wow-bags) uses it for
+an agent over World of Warcraft capture data — thirteen tools with compile-time
+schemas, a prompt file, a typed reply, and a permission that gates nothing yet
+and is declared anyway. Optional tool parameters exist because that consumer
+needed them; see the commit, and the rule below about features that cannot be
+diagnosed at compile time.
+
 | Package | What it is |
 | --- | --- |
 | `Agentry.Abstractions` | The attributes. netstandard2.0, zero dependencies |
