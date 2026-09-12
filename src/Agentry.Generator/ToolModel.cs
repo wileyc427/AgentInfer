@@ -38,7 +38,14 @@ internal sealed record ToolModel(
 internal sealed record ToolParameterModel(
     string Name,
     string Type,
-    string Reader) : IEquatable<ToolParameterModel>;
+    string Reader,
+
+    /// <summary>
+    /// The C# source for this parameter's default, or <c>null</c> when it has
+    /// none. Non-null means the argument is absent from the schema's
+    /// <c>required</c> list, so a model may legitimately omit it.
+    /// </summary>
+    string? Default) : IEquatable<ToolParameterModel>;
 
 /// <summary>What a tool hands back, and how the invoker renders it.</summary>
 internal enum ToolReturn

@@ -40,6 +40,13 @@ nothing is discovered at run time is checked by the build rather than asserted
 here. It was asserted here for a long time and was not true; see the third
 gotcha.
 
+**Built against.** [wow-bags](https://github.com/wileyc427/wow-bags) uses it for
+an agent over World of Warcraft capture data — thirteen tools with compile-time
+schemas, a prompt file, a typed reply, and a permission that gates nothing yet
+and is declared anyway. Optional tool parameters exist because that consumer
+needed them; see the commit, and the rule below about features that cannot be
+diagnosed at compile time.
+
 | Package | What it is |
 | --- | --- |
 | `Agentry.Abstractions` | The attributes. netstandard2.0, zero dependencies |
@@ -187,6 +194,35 @@ and then the return value went back out through
 Tools are opt-in one method at a time. A public method without `[AgentTool]` is
 **absent** from the manifest, not hidden from documentation while remaining
 callable — which is what NOOA's `@hidden` actually does.
+
+### An argument the model may leave out
+
+```csharp
+[AgentTool("Search the bags. Give an item level to see only what is above it.")]
+[RequiresPermission("bags.read")]
+public string Search(string character, string? query = null, int? minItemLevel = null) => …;
+```
+
+`character` is in the schema's `required` list and the other two are not, so a
+model may call this with `{"character":"Fillup"}` and the dispatcher fills in
+the rest from the signature.
+
+**A default is the only thing that makes an argument optional.** Not
+nullability: `int? page` with no default is a required parameter in C#, and a
+schema that disagreed with the signature beside it would be the worse of the two
+to trust. The default is also rendered into the dispatch switch as the C#
+literal that reproduces it, so what the signature promises and what an omitted
+argument does are the same thing by construction.
+
+What this replaces is a sentinel the model had to be told about in prose — pass
+an empty string for no filter, pass 0 for no floor — and prose is the weakest
+place to put a rule. It was worse than that: every parameter was `required` and
+every one was read with `GetProperty`, so a model that sent nothing anyway got a
+`KeyNotFoundException` out of the dispatch switch rather than an answer.
+
+An explicit `"query": null` takes the default too. A model told an argument is
+optional sends that about as readily as it omits the key, and the two plainly
+mean the same thing.
 
 ### Permissions are enforced, not declared
 

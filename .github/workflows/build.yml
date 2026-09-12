@@ -19,6 +19,8 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The build reads. The publish job below asks for `packages: write` on its own,
+# so a compromised build step cannot push a package.
 permissions:
   contents: read
 
@@ -124,3 +126,40 @@ jobs:
         with:
           name: packages
           path: ${{ github.workspace }}/artifacts/*.nupkg
+
+  publish:
+    name: publish
+    # Only from main, and only from this repository — a fork's push must not be
+    # able to put a package under this owner's namespace.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && !github.event.repository.fork
+    needs: pack
+    runs-on: ubuntu-latest
+
+    # Narrower than the workflow default, and the only job that widens it.
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: artifacts
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # The artifact from `pack`, not a rebuild. Publishing a second compilation
+      # of the same commit would mean the bytes somebody restores are not the
+      # bytes the matrix above tested.
+      #
+      # --skip-duplicate because the version in Directory.Build.props only moves
+      # when somebody changes it: every other push to main re-publishes a
+      # version that already exists, and that is a 409 rather than a problem.
+      - name: Push to GitHub Packages
+        run: >-
+          dotnet nuget push "artifacts/*.nupkg"
+          --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+          --api-key ${{ secrets.GITHUB_TOKEN }}
+          --skip-duplicate

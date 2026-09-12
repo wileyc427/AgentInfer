@@ -15,6 +15,14 @@
   </PropertyGroup>
 
   <PropertyGroup Label="Package">
+    <!--
+      Explicit, and deliberately below 1.0. Without it every package is 1.0.0 by
+      default, which is a promise this library has not made: P3 is not started
+      and the tool-result surface changed twice after it was asserted stable.
+      Consumers pin this, so it has to mean something — raise it in the same
+      commit as the change it describes.
+    -->
+    <Version>0.1.0</Version>
     <Authors>wileyc427</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/wileyc427/OO-Agents-Dotnet</RepositoryUrl>
