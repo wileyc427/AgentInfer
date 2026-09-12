@@ -26,3 +26,9 @@ keeps the `string` keyword alias rather than expanding it to `System.String`,
 so a display-string comparison silently fails. Use `SpecialType`. The first
 draft did it the wrong way, compiled cleanly, and JSON-encoded every string
 argument into its own prompt.
+
+**An XML comment cannot contain two consecutive hyphens.** Writing a command
+line flag inside a comment in any `.props`, `.targets`, `.csproj` or workflow
+XML makes the file unparseable, and MSBuild reports it as every package in the
+file losing its version — `NU1015`, naming projects that were never touched.
+Name the flag in prose instead. This has now cost time twice.
