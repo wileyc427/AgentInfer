@@ -22,11 +22,69 @@
       Consumers pin this, so it has to mean something — raise it in the same
       commit as the change it describes.
     -->
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Authors>wileyc427</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/wileyc427/OO-Agents-Dotnet</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/wileyc427/OO-Agents-Dotnet</PackageProjectUrl>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageTags>agents;llm;ai;source-generator;roslyn;openai;ollama;microsoft-extensions-ai</PackageTags>
+
+    <!--
+      The XML documentation, shipped rather than compiled and discarded. It is
+      this project's API reference — there is no generated doc site — and
+      without it a consumer hovering a method in their IDE gets the signature
+      and nothing else.
+
+      This one belongs HERE and not in Directory.Build.targets, which is the
+      opposite of the trim analyzers two files over, and the reason is the same
+      import order read from the other end. The SDK turns
+      GenerateDocumentationFile into the DocumentationFile the compiler is
+      actually passed during PROPS evaluation, long before Directory.Build.targets
+      is read — but the switch that makes the XML-comment warnings fatal is read
+      later, and does see it. Set it in targets and you get every CS1587 and
+      CS1573 in the tree as a build error, and no .xml file in the package: the
+      enforcement without the artifact. Verified by opening the nupkg, which is
+      the only way to catch it.
+
+      The cost of being early is that this cannot be scoped to what ships, since
+      IsPackable is set in the project body and is not visible from here.
+      Projects that ship nothing turn it off themselves, the same way they
+      already turn off the trim analyzers — see the generator, the samples and
+      the test projects.
+    -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <!--
+      CS1591 (missing XML comment on a public member) is suppressed, and it is a
+      concession rather than a decision. Roughly fifty public members have no
+      comment of their own — mostly overload families sitting under one shared
+      remark, and interface implementations that inherit it — so enforcing it
+      today fails the build on all of them at once.
+
+      What is wanted is to write those comments and delete this line. It is here
+      so that shipping the docs that DO exist is not blocked on the ones that do
+      not.
+    -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!--
+      A symbol package, so a consumer stepping into this library gets source
+      rather than decompiled IL. Cheap: snupkg is a separate file that nobody
+      restores unless their debugger asks for it.
+    -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <!--
+      Normalizes the file paths baked into the PDB, which is what makes Source
+      Link resolve them against the repository rather than against a runner
+      directory that no longer exists. Only on CI: locally the absolute paths
+      are the useful ones.
+    -->
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
 </Project>

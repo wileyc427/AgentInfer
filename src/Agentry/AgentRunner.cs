@@ -186,9 +186,12 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     /// Binds a reply, or says why it could not — without throwing.
     /// </summary>
     /// <remarks>
-    /// The single binding path. <see cref="Bind{T}"/> is this plus a throw, so
-    /// the two cannot disagree about what counts as a usable reply or about the
-    /// sentence describing an unusable one.
+    /// The single binding path. <see cref="Bind{T}(AgentCall, string, IReplyContract{T})"/>
+    /// is this plus a throw, so the two cannot disagree about what counts as a
+    /// usable reply or about the sentence describing an unusable one.
+    ///
+    /// The cref names the overload's parameters because there are two Bind{T}:
+    /// the other one takes JsonSerializerOptions and is the reflective path.
     /// </remarks>
     private static ReplyAttempt<T> TryBind<T>(
         AgentCall call,
