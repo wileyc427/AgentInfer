@@ -1,0 +1,19 @@
+# Normalize to LF in the repository, matching .editorconfig.
+#
+# Without this the build is green on Linux and produces a whole-file diff the
+# first time somebody commits from Windows, because git checks out CRLF and
+# commits back what it checked out. The repo already mandates LF; this is what
+# makes git agree.
+* text=auto eol=lf
+
+# Windows-only files that genuinely want CRLF.
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+# Binaries git should never touch.
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.snk  binary
+*.nupkg binary

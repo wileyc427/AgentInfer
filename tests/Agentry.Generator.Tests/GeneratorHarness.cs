@@ -16,6 +16,7 @@ namespace Agentry.Generator.Tests;
 /// </remarks>
 internal static class GeneratorHarness
 {
+    /// <param name="source">The C# the generator runs against.</param>
     /// <param name="additionalFiles">
     /// What the project put in <c>AdditionalFiles</c>, as (path, content). Paths
     /// are absolute in a real build, so the tests write them that way.
