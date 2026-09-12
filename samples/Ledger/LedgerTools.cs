@@ -1,4 +1,4 @@
-using Agentry;
+using AgentInfer;
 
 namespace Ledger;
 

@@ -3,19 +3,19 @@ using System.Diagnostics.Metrics;
 namespace Ledger;
 
 /// <summary>
-/// Collects the Agentry meter and prints it when the run ends.
+/// Collects the AgentInfer meter and prints it when the run ends.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Without a listener, every instrument in this library records into nothing.
-/// <c>agentry.tool.calls_per_turn</c> is the number the README says decides
+/// <c>agentinfer.tool.calls_per_turn</c> is the number the README says decides
 /// whether a workload ever needs the model to write code, and until something
 /// subscribes it is an intention rather than a measurement.
 /// </para>
 /// <para>
 /// Ten lines and no dependency, because the instruments are
 /// <c>System.Diagnostics.Metrics</c> — the same source an OpenTelemetry
-/// exporter would read. A real host points OTel at the <c>Agentry</c> meter and
+/// exporter would read. A real host points OTel at the <c>AgentInfer</c> meter and
 /// gets this and much more; a sample wants to see the numbers without standing
 /// up a collector.
 /// </para>
@@ -30,7 +30,7 @@ internal sealed class Meters : IDisposable
     {
         _listener.InstrumentPublished = (instrument, listener) =>
         {
-            if (instrument.Meter.Name == "Agentry") listener.EnableMeasurementEvents(instrument);
+            if (instrument.Meter.Name == "AgentInfer") listener.EnableMeasurementEvents(instrument);
         };
 
         _listener.SetMeasurementEventCallback<int>((instrument, value, _, _) => Record(instrument.Name, value));

@@ -32,7 +32,7 @@
 
     <!--
       The same transitivity gap as the analyzer below, for the same reason: the
-      buildTransitive targets that ship in the Agentry package do this
+      buildTransitive targets that ship in the AgentInfer package do this
       automatically, and none of a package's MSBuild files flow through a
       ProjectReference. So the two lines the package would have added are here
       by hand, and only projects inside this repo need them.
@@ -42,8 +42,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/Agentry/Agentry.csproj" />
-    <ProjectReference Include="../../src/Agentry.DependencyInjection/Agentry.DependencyInjection.csproj" />
+    <ProjectReference Include="../../src/AgentInfer/AgentInfer.csproj" />
+    <ProjectReference Include="../../src/AgentInfer.DependencyInjection/AgentInfer.DependencyInjection.csproj" />
     <PackageReference Include="Microsoft.Extensions.AI" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" />
@@ -55,8 +55,8 @@
     <!--
       The generator has to be referenced AGAIN, here, and this is the gotcha
       worth knowing: analyzers do not flow transitively through
-      ProjectReference. Agentry references the generator as an Analyzer, but a
-      project referencing Agentry gets the runtime and no generator — the build
+      ProjectReference. AgentInfer references the generator as an Analyzer, but a
+      project referencing AgentInfer gets the runtime and no generator — the build
       succeeds for the library and then every consumer sees "type not found".
 
       It works transitively through a NuGet package (analyzers/dotnet/cs in the
@@ -64,7 +64,7 @@
       is a repo-local .props that could hide it; left explicit because the
       failure it prevents is confusing enough to be worth seeing.
     -->
-    <ProjectReference Include="../../src/Agentry.Generator/Agentry.Generator.csproj"
+    <ProjectReference Include="../../src/AgentInfer.Generator/AgentInfer.Generator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
   </ItemGroup>

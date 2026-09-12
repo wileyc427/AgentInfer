@@ -35,11 +35,11 @@
       and watching it would make every bump a change demanding a bump. So a
       package property edited here — Authors, a new global property — is on you.
     -->
-    <Version>0.1.1</Version>
+    <Version>0.2.0</Version>
     <Authors>wileyc427</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/wileyc427/OO-Agents-Dotnet</RepositoryUrl>
-    <PackageProjectUrl>https://github.com/wileyc427/OO-Agents-Dotnet</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/wileyc427/AgentInfer</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/wileyc427/AgentInfer</PackageProjectUrl>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <PackageTags>agents;llm;ai;source-generator;roslyn;openai;ollama;microsoft-extensions-ai</PackageTags>
 

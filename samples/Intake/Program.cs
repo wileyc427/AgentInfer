@@ -1,6 +1,6 @@
 using System.ClientModel;
 
-using Agentry;
+using AgentInfer;
 
 using Intake;
 
@@ -46,7 +46,7 @@ var configuration = new ConfigurationBuilder()
     .AddJsonFile("appsettings.Development.json", optional: true)
     .Build();
 
-var section = configuration.GetSection("Agentry");
+var section = configuration.GetSection("AgentInfer");
 
 using var logs = LoggerFactory.Create(builder => builder
     // Information, not Warning. AgentRunner logs one line per generation call
@@ -58,7 +58,7 @@ using var logs = LoggerFactory.Create(builder => builder
 
 // Nothing listens to a Meter by default, so every instrument in this library
 // records into a void. --metrics prints the distributions at exit; a real host
-// points OpenTelemetry at the "Agentry" meter instead.
+// points OpenTelemetry at the "AgentInfer" meter instead.
 var metrics = args.Contains("--metrics", StringComparer.Ordinal) ? new Meters() : null;
 
 var rehearsal = new Rehearsal();
@@ -70,12 +70,12 @@ var services = new ServiceCollection();
 services.AddSingleton<ILoggerFactory>(logs);
 services.AddLogging();
 
-// IntakeRoles.All rather than the generated AgentryRoles.All, and that is the
+// IntakeRoles.All rather than the generated AgentInferRoles.All, and that is the
 // cost of writing the class: the generated array is built from the [Model]
 // attributes actually present, so it cannot be out of date. This one is what
 // somebody remembered to put in it.
-var agentry = services
-    .AddAgentryModels(configuration, (binding, _) => ClientFor(binding))
+var agentInfer = services
+    .AddAgentInferModels(configuration, (binding, _) => ClientFor(binding))
     .ValidateRoles(IntakeRoles.All);
 
 var provider = services.BuildServiceProvider();
@@ -102,8 +102,8 @@ Console.WriteLine(live ? "model: live" : "model: scripted (pass --live for a rea
 // Where every setting that matters came from. The precedence is inverted so a
 // file beats the environment; printing the winner is what makes that safe to
 // rely on rather than something to remember.
-Console.WriteLine($"  default:  {Configured(configuration, "Agentry:DefaultModel")}");
-foreach (var (role, binding) in agentry.Models)
+Console.WriteLine($"  default:  {Configured(configuration, "AgentInfer:DefaultModel")}");
+foreach (var (role, binding) in agentInfer.Models)
 {
     Console.WriteLine(
         $"  role {role}: {binding.Model} at {binding.Provider.Endpoint}  (key: {binding.Provider.KeySource})");

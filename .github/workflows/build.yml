@@ -44,7 +44,7 @@ jobs:
   # already-published version as success, so a change that does not raise
   # <Version> publishes nothing and reports green. Consumers keep restoring the
   # previous assembly, and the symptom arrives in their repository rather than
-  # this one: a consumer restoring an Agentry that has never heard of a feature
+  # this one: a consumer restoring an AgentInfer that has never heard of a feature
   # sitting in this main.
   #
   # It runs on pull requests too, which is the point: a missing bump should stop

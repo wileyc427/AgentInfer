@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    netstandard2.0 on purpose. This is the assembly a consumer's DOMAIN project
+    references in order to put [Agent] on an interface, and it is also loaded by
+    the generator, which runs inside Roslyn on netstandard2.0. One target that
+    both can use keeps a domain project from taking a framework bump to annotate
+    an interface.
+
+    It has no package references at all. Nothing here should ever drag an HTTP
+    client into a domain assembly.
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <Description>Attributes and contracts for AgentInfer. No dependencies.</Description>
+  </PropertyGroup>
+
+</Project>
