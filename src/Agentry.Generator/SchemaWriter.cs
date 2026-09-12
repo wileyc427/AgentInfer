@@ -50,6 +50,7 @@ internal static class SchemaWriter
         var properties = new StringBuilder();
         var required = new StringBuilder();
         var first = true;
+        var firstRequired = true;
 
         foreach (var parameter in method.Parameters)
         {
@@ -62,15 +63,25 @@ internal static class SchemaWriter
                 return null;
             }
 
-            if (!first)
-            {
-                properties.Append(',');
-                required.Append(',');
-            }
+            if (!first) properties.Append(',');
 
             properties.Append('"').Append(parameter.Name).Append("\":").Append(schema);
-            required.Append('"').Append(parameter.Name).Append('"');
             first = false;
+
+            // A default in the signature is what makes an argument optional,
+            // and it is the only thing that does. `int?` on its own is still
+            // required — that is what it means in C#, and a schema that
+            // disagreed with the signature beside it would be the worse of the
+            // two to trust.
+            //
+            // Asked through DefaultFor rather than HasExplicitDefaultValue so
+            // this cannot say optional for a default the dispatch switch has no
+            // way to emit. The two answers have to be the same one.
+            if (DefaultFor(parameter) is not null) continue;
+
+            if (!firstRequired) required.Append(',');
+            required.Append('"').Append(parameter.Name).Append('"');
+            firstRequired = false;
         }
 
         return $"{{\"type\":\"object\",\"properties\":{{{properties}}},\"required\":[{required}],\"additionalProperties\":false}}";
@@ -629,6 +640,67 @@ internal static class SchemaWriter
         return Camel(field.Name);
     }
 
+    /// <summary>
+    /// A parameter's default, as the C# source that reproduces it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Emitted into the dispatch switch as the value used when the model omits
+    /// the argument, so what the signature says and what an omitted argument
+    /// does are the same thing by construction rather than by agreement.
+    /// </para>
+    /// <para>
+    /// An enum's <c>ExplicitDefaultValue</c> arrives as its underlying integer,
+    /// which is why the cast is here. Without it the emitted code assigns an
+    /// <c>int</c> to an enum parameter and the generated file does not compile,
+    /// with the error reported against a file the user cannot open.
+    /// </para>
+    /// </remarks>
+    public static string? DefaultFor(IParameterSymbol parameter)
+    {
+        if (!parameter.HasExplicitDefaultValue) return null;
+
+        var qualified = parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var value = parameter.ExplicitDefaultValue;
+
+        if (value is null) return $"default({qualified})";
+
+        var unwrapped = Unwrap(parameter.Type);
+
+        if (unwrapped.TypeKind == TypeKind.Enum)
+        {
+            return $"({qualified})({Invariant(value)})";
+        }
+
+        return unwrapped.SpecialType switch
+        {
+            SpecialType.System_String => Literal((string)value),
+
+            // Invariant is shared with the bounds writer above, and already
+            // handles both bool spelling and the comma-decimal culture that
+            // would otherwise render 1.5 as `1,5` — two C# arguments rather
+            // than one number. A generator runs in whatever culture started the
+            // compiler.
+            SpecialType.System_Boolean => Invariant(value),
+            SpecialType.System_Int32 => Invariant(value),
+            SpecialType.System_Int64 => Invariant(value) + "L",
+            SpecialType.System_Double => Invariant(value) + "D",
+            SpecialType.System_Single => Invariant(value) + "F",
+            SpecialType.System_Decimal => Invariant(value) + "M",
+
+            // Unreachable while ParameterSchema accepts only the types above,
+            // and cheap insurance against it growing without this growing too:
+            // the parameter keeps its default in the signature and stops being
+            // optional on the wire, rather than emitting a literal that is
+            // wrong.
+            _ => null,
+        };
+    }
+
+    /// <summary>A C# string literal, quoted and escaped.</summary>
+    private static string Literal(string value) =>
+        "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+
     private static bool IsFlags(ITypeSymbol type) =>
         type.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == FlagsAttribute);
 
@@ -658,7 +730,20 @@ internal static class SchemaWriter
     /// offered to the model and then refused on arrival.
     /// </para>
     /// </remarks>
-    public static string? ReaderFor(ITypeSymbol type) => type.SpecialType switch
+    public static string? ReaderFor(ITypeSymbol type) => ReaderForCore(Unwrap(type));
+
+    /// <summary>
+    /// The reader for an already-unwrapped type.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ReaderFor"/> unwraps <c>Nullable&lt;T&gt;</c> before calling
+    /// this because <see cref="ParameterSchema"/> does, and the two have to
+    /// accept the same set. They did not: <c>int?</c> passed the schema check
+    /// and then returned no reader, so the transform's null-forgiving
+    /// <c>ReaderFor(...)!</c> emitted dispatch with nothing after the dot. A
+    /// tool that compiled the manifest and not the switch.
+    /// </remarks>
+    private static string? ReaderForCore(ITypeSymbol type) => type.SpecialType switch
     {
         SpecialType.System_String => "GetString()!",
         SpecialType.System_Boolean => "GetBoolean()",
