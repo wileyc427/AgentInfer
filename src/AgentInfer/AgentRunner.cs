@@ -662,9 +662,8 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         // Boxed once, deliberately. A value type boxes afresh at each use, and
         // TryValidateObject compares the instance it is given against the one
         // inside the context by reference — so passing `value!` twice throws
-        // "the instance provided must match the ObjectInstance", from inside
-        // validation, for every struct and enum return. Nothing caught it while
-        // enums could not bind at all.
+        // "the instance provided must match the ObjectInstance" for every
+        // struct and enum return.
         object instance = value!;
 
         if (Validator.TryValidateObject(instance, new ValidationContext(instance), results, validateAllProperties: true))

@@ -8,32 +8,22 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
 
     <!--
-      The trim and AOT analyzers live in Directory.Build.targets, not here. See
-      the comment there: this file is imported before the project sets
-      TargetFramework, so a condition on it silently evaluates to false.
+      The trim and AOT analyzers are in Directory.Build.targets. This file is
+      imported before the project sets TargetFramework, so a condition on it
+      here evaluates to false without saying so.
     -->
   </PropertyGroup>
 
   <PropertyGroup Label="Package">
     <!--
-      Explicit, and deliberately below 1.0. Without it every package is 1.0.0 by
-      default, which is a promise this library has not made: P3 is not started
-      and the tool-result surface changed twice after it was asserted stable.
-      Consumers pin this, so it has to mean something.
+      Below 1.0 deliberately, and explicit: without it every package is 1.0.0,
+      a promise this library has not made.
 
-      Raise it in the same commit as the change it describes, not afterwards. A
-      version already on the feed is immutable and the publish job pushes with
-      the skip-duplicate flag, so shipping a change without moving this
-      publishes nothing and reports success: consumers keep restoring the old
-      assembly and find out somewhere else entirely.
-      `.github/version-guard.sh` is what stops that, and it runs on pull
-      requests, so the failure arrives before a merge rather than after one.
-      (The flag is named in prose because an XML comment cannot contain a
-      double hyphen, which is how this file broke the build once already.)
-
-      That guard does not watch this file, because this is where <Version> lives
-      and watching it would make every bump a change demanding a bump. So a
-      package property edited here — Authors, a new global property — is on you.
+      Raise it in the same commit as the change it describes. The publish job
+      skips duplicates, so shipping a change without moving this publishes
+      nothing and still reports success. .github/version-guard.sh enforces it on
+      pull requests. The guard does not watch this file, so a package property
+      edited here is on you.
     -->
     <Version>0.3.0</Version>
     <Authors>wileyc427</Authors>
@@ -44,58 +34,36 @@
     <PackageTags>agents;llm;ai;source-generator;roslyn;openai;ollama;microsoft-extensions-ai</PackageTags>
 
     <!--
-      The XML documentation, shipped rather than compiled and discarded. It is
-      this project's API reference — there is no generated doc site — and
-      without it a consumer hovering a method in their IDE gets the signature
-      and nothing else.
+      Ships the XML documentation, which is this library's API reference.
 
-      This one belongs HERE and not in Directory.Build.targets, which is the
-      opposite of the trim analyzers two files over, and the reason is the same
-      import order read from the other end. The SDK turns
-      GenerateDocumentationFile into the DocumentationFile the compiler is
-      actually passed during PROPS evaluation, long before Directory.Build.targets
-      is read — but the switch that makes the XML-comment warnings fatal is read
-      later, and does see it. Set it in targets and you get every CS1587 and
-      CS1573 in the tree as a build error, and no .xml file in the package: the
-      enforcement without the artifact. Verified by opening the nupkg, which is
-      the only way to catch it.
+      It belongs here rather than in Directory.Build.targets, which is the
+      opposite of the analyzers above. The SDK derives the compiler's
+      DocumentationFile during props evaluation; the switch making XML-comment
+      warnings fatal is read later. Set it in targets and the build enforces
+      those warnings while shipping no .xml at all.
 
-      The cost of being early is that this cannot be scoped to what ships, since
-      IsPackable is set in the project body and is not visible from here.
-      Projects that ship nothing turn it off themselves, the same way they
-      already turn off the trim analyzers — see the generator, the samples and
-      the test projects.
+      Being early means it cannot be scoped by IsPackable, which the project
+      body sets. Projects that ship nothing turn it off themselves.
     -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
 
     <!--
-      CS1591 (missing XML comment on a public member) is suppressed, and it is a
-      concession rather than a decision. Roughly fifty public members have no
-      comment of their own — mostly overload families sitting under one shared
-      remark, and interface implementations that inherit it — so enforcing it
-      today fails the build on all of them at once.
-
-      What is wanted is to write those comments and delete this line. It is here
-      so that shipping the docs that DO exist is not blocked on the ones that do
-      not.
+      CS1591 (missing XML comment on a public member) is suppressed so that the
+      documentation which exists can ship. Write the missing comments and delete
+      this line.
     -->
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
-    <!--
-      A symbol package, so a consumer stepping into this library gets source
-      rather than decompiled IL. Cheap: snupkg is a separate file that nobody
-      restores unless their debugger asks for it.
-    -->
+    <!-- Symbols, so stepping into this library lands on source rather than IL. -->
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
     <!--
-      Normalizes the file paths baked into the PDB, which is what makes Source
-      Link resolve them against the repository rather than against a runner
-      directory that no longer exists. Only on CI: locally the absolute paths
-      are the useful ones.
+      Normalizes the paths in the PDB so Source Link resolves them against the
+      repository rather than a runner directory. Local builds want the real
+      absolute paths.
     -->
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>

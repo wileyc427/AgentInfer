@@ -12,8 +12,7 @@ public sealed record CategorySummary(string Category, decimal Spent, decimal Bud
 /// Nothing here is exposed to a model because it is public. <c>Categories</c>
 /// and <c>TotalFor</c> carry <see cref="AgentToolAttribute"/> because somebody
 /// decided they should; <c>DebugDump</c> does not, and is therefore invisible
-/// and unreachable — not hidden from the documentation while remaining
-/// callable, which is what the Python framework's <c>@hidden</c> actually does.
+/// and unreachable — rather than merely undocumented and still callable.
 /// </remarks>
 public sealed class LedgerTools
 {

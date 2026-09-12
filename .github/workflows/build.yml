@@ -1,15 +1,13 @@
 # The build, on machines that are not the one it was written on.
 #
-# Two reasons this exists rather than "it builds here". A Roslyn generator is
-# loaded into the compiler, so it is sensitive to the SDK patch version in a way
-# ordinary code is not — "my generator produced nothing" is what a mismatch
-# looks like, with no error anywhere. And the repo turns on
-# TreatWarningsAsErrors, IsAotCompatible, EnableTrimAnalyzer and
-# EnforceCodeStyleInBuild, every one of which can fire on a different SDK than
-# the one a change was written against.
+# A Roslyn generator is loaded into the compiler, so it is sensitive to the SDK
+# patch version in a way ordinary code is not — a mismatch presents as "my
+# generator produced nothing", with no error anywhere. TreatWarningsAsErrors,
+# IsAotCompatible, EnableTrimAnalyzer and EnforceCodeStyleInBuild can each fire
+# on a different SDK than a change was written against.
 #
-# So: both major platforms, Release as well as Debug, and the sample actually
-# run rather than only compiled.
+# Hence both platforms, both configurations, and samples run rather than only
+# compiled.
 
 name: build
 
@@ -39,17 +37,12 @@ env:
   NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 
 jobs:
-  # Cheap, and first, because the thing it catches is silent.
+  # Cheap, first, and catching something otherwise silent: the publish job skips
+  # duplicates, so a change that does not raise <Version> publishes nothing and
+  # still reports green, leaving consumers on the previous assembly.
   #
-  # `dotnet nuget push --skip-duplicate` in the publish job treats an
-  # already-published version as success, so a change that does not raise
-  # <Version> publishes nothing and reports green. Consumers keep restoring the
-  # previous assembly, and the symptom arrives in their repository rather than
-  # this one: a consumer restoring an AgentInfer that has never heard of a feature
-  # sitting in this main.
-  #
-  # It runs on pull requests too, which is the point: a missing bump should stop
-  # at review rather than turn main red after the merge.
+  # On pull requests too, so a missing bump stops at review rather than after
+  # the merge.
   version:
     name: version
     if: "!startsWith(github.ref, 'refs/tags/')"
@@ -125,14 +118,12 @@ jobs:
           --logger "trx;LogFileName=test-results.trx"
           --results-directory ${{ github.workspace }}/test-results
 
-      # The sample is a smoke test, not decoration. It runs against a scripted
-      # IChatClient, so it needs no endpoint and no key — and it exercises the
-      # generator, the tool loop, the permission gate, enum binding and the
-      # scope counters end to end. Compiling it proves none of that.
-      # Both scripted samples, because they exercise different halves: Incident
-      # runs a fully generated agent, Intake runs a hand-written one over
-      # generated tools. A change that breaks only the second is exactly the
-      # kind the first would not notice.
+      # Smoke tests, not decoration. Against a scripted IChatClient they need no
+      # endpoint and no key, and they exercise the generator, the tool loop, the
+      # permission gate, enum binding and the scope counters end to end.
+      #
+      # Both, because they cover different halves: Incident runs a fully
+      # generated agent, Intake a hand-written one over generated tools.
       - name: Run the incident sample
         run: dotnet run --project samples/Incident --no-build -c ${{ matrix.configuration }}
 
@@ -159,10 +150,9 @@ jobs:
         with:
           global-json-file: global.json
 
-      # Separate from the build matrix because packing fails differently from
-      # compiling: an analyzer package has no lib/ assemblies, so the rules that
-      # make a normal package well-formed do not apply to it, and the error
-      # arrives at pack time on a project that built cleanly.
+      # Separate from the matrix because packing fails differently from
+      # compiling: an analyzer package has no lib/ assemblies, so pack-time
+      # errors arrive on projects that built cleanly.
       - name: Pack
         run: dotnet pack -c Release -o ${{ github.workspace }}/artifacts
 
@@ -199,13 +189,11 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # The artifact from `pack`, not a rebuild. Publishing a second compilation
-      # of the same commit would mean the bytes somebody restores are not the
-      # bytes the matrix above tested.
+      # The artifact from `pack`, not a rebuild: a second compilation of the same
+      # commit is not the bytes the matrix tested.
       #
-      # --skip-duplicate because the version in Directory.Build.props only moves
-      # when somebody changes it: every other push to main re-publishes a
-      # version that already exists, and that is a 409 rather than a problem.
+      # Duplicates are skipped because <Version> only moves when somebody moves
+      # it, so most pushes to main re-publish an existing version.
       - name: Push to GitHub Packages
         run: >-
           dotnet nuget push "artifacts/*.nupkg"

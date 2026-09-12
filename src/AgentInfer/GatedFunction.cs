@@ -15,11 +15,9 @@ namespace AgentInfer;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Deriving from <see cref="AIFunction"/> by hand rather than calling
-/// <c>AIFunctionFactory.Create</c>. The factory reflects over a delegate to
-/// build the schema and bind arguments, which is exactly the thing this library
-/// moved to compile time — using it here would put reflection back on the path
-/// and undo the trimming story for the sake of three lines.
+/// Derived from <see cref="AIFunction"/> by hand rather than via
+/// <c>AIFunctionFactory.Create</c>, which reflects over a delegate to build the
+/// schema and bind arguments — the work this library moved to compile time.
 /// </para>
 /// <para>
 /// Putting the check <em>in the function</em> rather than around the loop is
@@ -72,8 +70,8 @@ internal sealed class GatedFunction : AIFunction
             var result = await _invoker.InvokeAsync(Name, json, _authorizer, cancellationToken)
                 .ConfigureAwait(false);
 
-            // Counted here rather than in the invoker: the invoker outlives the
-            // call, and "calls per turn" is the distribution that matters.
+            // Counted here rather than in the invoker, which outlives the call:
+            // "calls per turn" is the distribution that matters.
             _log.Record(Name, denied: false);
             AgentMetrics.ToolCalls.Add(1, new KeyValuePair<string, object?>("tool", Name),
                 new KeyValuePair<string, object?>("outcome", "ok"));
@@ -99,19 +97,17 @@ internal sealed class GatedFunction : AIFunction
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>JsonSerializer.Serialize</c> over a
-    /// <c>Dictionary&lt;string, object?&gt;</c> has to discover each value's
+    /// By hand rather than <c>JsonSerializer.Serialize</c> over a
+    /// <c>Dictionary&lt;string, object?&gt;</c>, which discovers each value's
     /// type at run time — reflection, on the one path this library claims is
-    /// free of it. It was there for the life of the repo, because the analyzer
-    /// that would have said so was never switched on.
+    /// free of it.
     /// </para>
     /// <para>
-    /// Writing it by hand is not a workaround. The values arrive as
-    /// <see cref="JsonElement"/> from the loop that parsed the model's reply,
-    /// so copying them through is the honest operation and
-    /// <see cref="Utf8JsonWriter"/> does exactly that with nothing to reflect
-    /// over. The scalars below are for a caller that assembled arguments itself
-    /// rather than receiving them from a model.
+    /// The values arrive as <see cref="JsonElement"/> from the loop that parsed
+    /// the model's reply, so copying them through with
+    /// <see cref="Utf8JsonWriter"/> is the direct operation. The scalars below
+    /// are for a caller that assembled arguments itself rather than receiving
+    /// them from a model.
     /// </para>
     /// <para>
     /// Anything else throws, by name. A tool argument this cannot render is a
@@ -185,25 +181,16 @@ internal static class AgentJson
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Without these two flags the library's central claim is false at the one
-    /// place it matters. A model replied <c>{"approved":false,"score":0}</c> to
-    /// a method returning <c>Verdict(bool, int, string[] Problems)</c>, and
-    /// deserialization happily produced a record with <c>null</c> in the
-    /// non-nullable <c>Problems</c> slot. The caller's <c>foreach</c> then threw
-    /// a NullReferenceException several lines away from the cause.
+    /// Both flags are load-bearing. Without them a reply missing a required
+    /// property deserializes into a record holding <c>null</c> in a
+    /// non-nullable slot, and the failure surfaces as a NullReferenceException
+    /// in the caller, well away from the cause. With them the same reply raises
+    /// a JsonException at the boundary, which the runner turns into an error
+    /// naming the missing property and quoting what the model said.
     /// </para>
     /// <para>
-    /// <c>Task&lt;Verdict&gt;</c> has to mean a <c>Verdict</c>. With these on,
-    /// the same reply raises a JsonException at the boundary, which the runner
-    /// turns into an error naming the missing property and quoting what the
-    /// model actually said.
-    /// </para>
-    /// <para>
-    /// This covers shape, not semantics. The same reply scored 0 out of an
-    /// intended 1–5 and nothing objected, because no range was declared. Value
-    /// constraints would need DataAnnotations or IValidatableObject run after
-    /// binding — worth doing, and a separate decision from making the type
-    /// itself honest.
+    /// This covers shape, not value ranges. Those need DataAnnotations or
+    /// IValidatableObject run after binding — a separate decision.
     /// </para>
     /// </remarks>
     private static JsonSerializerOptions? _binding;
@@ -214,15 +201,13 @@ internal static class AgentJson
     /// <remarks>
     /// <para>
     /// The non-generic <c>JsonStringEnumConverter</c> builds a converter per
-    /// enum at run time, which Native AOT cannot do. That is true, and it only
-    /// matters on the reflective path — which already says so in its own
-    /// signature. A static property initializer runs in a class constructor and
-    /// cannot inherit an annotation from anywhere, so the warning had nowhere
-    /// to go; a method can carry it.
+    /// enum at run time, which Native AOT cannot do. A static property
+    /// initializer runs in a class constructor and cannot carry the annotation
+    /// saying so; a method can.
     /// </para>
     /// <para>
-    /// The race on <c>_binding</c> is benign: two threads may each build one,
-    /// and the two are equivalent.
+    /// The race on <c>_binding</c> is benign — two threads may each build one,
+    /// and they are equivalent.
     /// </para>
     /// </remarks>
     [RequiresUnreferencedCode("Reflection-based JSON. An IReplyContract is the trimmable path.")]
