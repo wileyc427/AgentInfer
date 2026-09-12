@@ -11,18 +11,14 @@ namespace AgentInfer.Generator;
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the differentiating piece. The usual way to get a tool schema is to
-/// reflect over the method at startup — which is what
-/// <c>AIFunctionFactory.Create</c> does, and it works until somebody publishes
-/// trimmed and the parameter metadata is gone. Here the schema is a string
-/// literal in the emitted file: nothing to trim, nothing to reflect over, and
-/// it is visible in review.
+/// The schema is a string literal in the emitted file rather than something
+/// reflected over at startup, as <c>AIFunctionFactory.Create</c> does. Nothing
+/// to trim, nothing to reflect over, and visible in review.
 /// </para>
 /// <para>
-/// The supported set is deliberately small. A type this cannot describe is
-/// <c>AIN005</c> at build rather than a tool the model calls wrongly at run
-/// time — and "the model sent a shape my parameter could not take" is a bad
-/// thing to learn from a production trace.
+/// The supported set is deliberately small: a type this cannot describe is
+/// <c>AIN005</c> at build, rather than a tool the model calls wrongly at run
+/// time.
 /// </para>
 /// </remarks>
 internal static class SchemaWriter
@@ -92,12 +88,10 @@ internal static class SchemaWriter
     /// </summary>
     /// <remarks>
     /// <para>
-    /// This closes the gap that made the library's claim half-true. Tool
-    /// <em>parameters</em> got a compile-time schema; return types did not — so
-    /// a model asked for a <c>Verdict(bool, int, string[])</c> was told only
-    /// "reply with JSON" and guessed. A real run answered
-    /// <c>{"supported": true}</c>, which is a reasonable invention given no
-    /// schema and nothing like the type.
+    /// Return types get a compile-time schema for the same reason tool
+    /// parameters do. Told only "reply with JSON", a model asked for
+    /// <c>Verdict(bool, int, string[])</c> will invent a plausible shape that
+    /// is not the one requested.
     /// </para>
     /// <para>
     /// Names are camelCased to match <c>JsonSerializerOptions.Web</c>, which is
@@ -514,8 +508,8 @@ internal static class SchemaWriter
 
         if (extra.Length == 0) return schema;
 
-        // Splice before the closing brace: the schema is a flat object here, so
-        // string surgery is honest rather than a shortcut around a parser.
+        // Splice before the closing brace. The schema is a flat object at this
+        // point, so this needs no parser.
         return schema.Substring(0, schema.Length - 1) + extra + "}";
     }
 

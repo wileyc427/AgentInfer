@@ -1,10 +1,9 @@
 <Project>
 
   <!--
-    Central package management: versions live here, never in a csproj. With a
-    source generator in the tree this matters more than usual — the generator
-    and its tests must agree on the Roslyn version exactly, and two csproj files
-    drifting apart produces errors that look like generator bugs.
+    Central package management: versions live here, never in a csproj. The
+    generator and its tests must agree on the Roslyn version exactly, and two
+    project files drifting apart produces errors that look like generator bugs.
   -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
@@ -15,10 +14,9 @@
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.10.0" />
     <PackageVersion Include="Microsoft.Extensions.AI" Version="10.10.0" />
     <!--
-      One provider package covers OpenAI, Ollama, vLLM and anything else that
-      speaks the OpenAI wire format, because all of them take an endpoint. The
-      alternative — a package per provider — is the mistake the Python side
-      avoided by going through litellm.
+      One provider package covers OpenAI, Ollama, vLLM and anything else
+      speaking the OpenAI wire format, since all of them differ only by
+      endpoint. A package per provider would be a maintenance bill for nothing.
     -->
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.10.0" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.12" />
@@ -31,9 +29,9 @@
 
   <ItemGroup Label="Generator">
     <!--
-      4.14.0 rather than latest: a generator must run inside whatever Roslyn the
-      consumer's SDK ships, so it targets the OLDEST supported compiler, not the
-      newest. Raising this raises the minimum SDK for everyone using the library.
+      The oldest supported compiler, not the newest: a generator runs inside
+      whatever Roslyn the consumer's SDK ships. Raising this raises the minimum
+      SDK for everyone using the library.
     -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="4.14.0" />

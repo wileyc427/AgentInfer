@@ -97,8 +97,8 @@ public interface ITriage
 /// Parallel sectioning needs no framework support: the agent is an interface,
 /// the interface is thread-safe because the runner holds no per-call state, and
 /// <c>Task.WhenAll</c> already exists. What it does need is a bound, which is
-/// why the sample runs the fan-out inside an <c>AgentScope</c> — sixteen
-/// branches at six iterations each is ninety-six requests nobody authorized.
+/// why the fan-out runs inside an <c>AgentScope</c>: a wide fan-out multiplies
+/// by the per-method iteration cap, and nothing else caps the product.
 /// </remarks>
 [Agent("""
     You investigate one service during an incident.

@@ -64,10 +64,8 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     /// <summary>Runs a method whose return type is bound from JSON.</summary>
     /// <remarks>
     /// The reflective binding here is the one part of the library that is not
-    /// AOT-clean; see <c>NotYetAotSafeAttribute</c>. The generator already knows
-    /// every return type at build time, so the fix is a generated
-    /// <c>JsonSerializerContext</c> — real work rather than a rename, which is
-    /// why P1 ships the honest version instead of pretending.
+    /// AOT-clean, and the annotations below say so rather than hiding it. The
+    /// trimmable path is <see cref="IReplyContract{T}"/>.
     /// </remarks>
     [RequiresUnreferencedCode("Binds the result with reflection-based JSON. A generated JsonSerializerContext replaces this.")]
     [RequiresDynamicCode("Binds the result with reflection-based JSON. A generated JsonSerializerContext replaces this.")]
@@ -286,11 +284,9 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     /// Runs a tool-using method whose result is bound from JSON.
     /// </summary>
     /// <remarks>
-    /// Symmetrical with the text version on purpose. The alternative considered
-    /// was "tool-using methods must return string", which is simpler to
-    /// implement and worse to use: it makes whether a method gets tools depend
-    /// on its return type, which is a rule nobody would guess and everybody
-    /// would trip over.
+    /// Symmetrical with the text version on purpose. Restricting tools to
+    /// methods returning string is simpler to implement and worse to use: it
+    /// makes whether a method gets tools depend on its return type.
     /// <para>
     /// The loop resolves the tool calls first; what is bound is the final
     /// assistant message, exactly as in the plain JSON path.
@@ -642,11 +638,10 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Binding proves the shape; this proves the values. A real run answered
-    /// <c>score: 100</c> for a field meant to be 1–5 and bound cleanly, because
-    /// 100 is a perfectly good integer. The schema now carries the bound and
-    /// tells the model, and this is the half that does not depend on the model
-    /// having listened.
+    /// Binding proves the shape; this proves the values. A field meant to be
+    /// 1–5 binds cleanly from <c>100</c>, because 100 is a perfectly good
+    /// integer. The schema carries the bound and tells the model; this is the
+    /// half that does not depend on the model having listened.
     /// </para>
     /// <para>
     /// The failure names the property and the rule, and quotes the reply, for
@@ -662,9 +657,8 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         // Boxed once, deliberately. A value type boxes afresh at each use, and
         // TryValidateObject compares the instance it is given against the one
         // inside the context by reference — so passing `value!` twice throws
-        // "the instance provided must match the ObjectInstance", from inside
-        // validation, for every struct and enum return. Nothing caught it while
-        // enums could not bind at all.
+        // "the instance provided must match the ObjectInstance" for every
+        // struct and enum return.
         object instance = value!;
 
         if (Validator.TryValidateObject(instance, new ValidationContext(instance), results, validateAllProperties: true))

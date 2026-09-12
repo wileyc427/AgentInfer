@@ -1,7 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <!--
+      net8.0 as well as net10.0, because net8.0 is the LTS most consumers are on.
+
+      The reply binder needs RespectNullableAnnotations and
+      RespectRequiredConstructorParameters, which are System.Text.Json 9+ APIs.
+      net8.0 gets them because Microsoft.Extensions.AI brings System.Text.Json
+      in as a package there rather than using the in-box one, so both targets
+      bind identically. Dropping that dependency would weaken binding on net8.0
+      only, and nothing would fail loudly to say so.
+    -->
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <Description>Runtime for AgentInfer. Generated agents call into this.</Description>
   </PropertyGroup>
 
@@ -20,7 +30,24 @@
     </TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
 
-  <Target Name="PackGenerator" DependsOnTargets="ResolveReferences">
+  <!--
+    The analyzer goes to analyzers/dotnet/cs, which is one folder for the whole
+    package rather than one per target framework — but this target is a
+    TargetsForTfmSpecificContentInPackage hook, so it runs once per TFM. Adding
+    it every time is NU5118 ("the package already contains this file"), which is
+    a pack-time error that only appears once a second TFM exists.
+
+    So it contributes on the first target framework only. Computed rather than
+    written out, because a hardcoded name silently stops matching the day
+    somebody reorders TargetFrameworks, and the Error below would stop guarding
+    anything.
+  -->
+  <PropertyGroup>
+    <_PackGeneratorTfm>$(TargetFrameworks.Split(';')[0])</_PackGeneratorTfm>
+  </PropertyGroup>
+
+  <Target Name="PackGenerator" DependsOnTargets="ResolveReferences"
+          Condition="'$(TargetFramework)' == '$(_PackGeneratorTfm)'">
     <ItemGroup>
       <!--
         Taken from @(Analyzer) rather than from a hardcoded bin path, so it
@@ -58,14 +85,26 @@
     <InternalsVisibleTo Include="AgentInfer.Tests" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!--
-      Update, not Include: the SDK's default None glob already has this file, and
-      claiming it twice is NETSDK1022. Pack sends it to buildTransitive/, which
-      NuGet imports for direct and transitive consumers alike.
-    -->
-    <None Update="build/AgentInfer.targets" Pack="true" PackagePath="buildTransitive/AgentInfer.targets" />
+  <!--
+    Include, and only in the outer build. A multi-targeted pack collects files
+    that are not framework-specific from the outer evaluation, where
+    TargetFramework is empty and the SDK's default None glob is switched off —
+    so an Update there matches nothing and the file leaves the package without
+    a word. Inside an inner build the glob does have it, which is why this
+    needs no Update to go with it.
+
+    The consequence of getting it wrong is quiet: the package restores, builds,
+    and ignores [Agent(PromptFile = "...")] in somebody else's project. The
+    check below is what turns that into a pack failure here.
+  -->
+  <ItemGroup Condition="'$(TargetFramework)' == ''">
+    <None Include="build/AgentInfer.targets" Pack="true" PackagePath="buildTransitive/AgentInfer.targets" />
   </ItemGroup>
+
+  <Target Name="VerifyBuildTransitiveIsPacked" BeforeTargets="GenerateNuspec" Condition="'$(TargetFramework)' == ''">
+    <Error Condition="'@(None->WithMetadataValue('PackagePath','buildTransitive/AgentInfer.targets'))' == ''"
+           Text="build/AgentInfer.targets is not in the package, so [Agent(PromptFile)] would silently do nothing for consumers." />
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />

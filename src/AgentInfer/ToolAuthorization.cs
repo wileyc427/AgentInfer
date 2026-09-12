@@ -5,11 +5,10 @@ namespace AgentInfer;
 /// <summary>What the current caller is allowed to do.</summary>
 /// <remarks>
 /// <para>
-/// Deliberately not <c>ClaimsPrincipal</c> or <c>IAuthorizationService</c>.
-/// Those live in ASP.NET Core, and a console app or a worker should be able to
-/// use this library without taking the web stack. The adapter that maps this
-/// onto <c>IAuthorizationService</c> is three lines and belongs in a separate
-/// package.
+/// Deliberately not <c>ClaimsPrincipal</c> or <c>IAuthorizationService</c>:
+/// those live in ASP.NET Core, and a console app or worker should not need the
+/// web stack to use this. An adapter onto <c>IAuthorizationService</c> is a few
+/// lines and belongs in its own package.
 /// </para>
 /// <para>
 /// Synchronous on purpose: this is consulted once per tool per turn, and an
@@ -25,8 +24,7 @@ public interface IToolAuthorizer
 /// <summary>Grants everything. For tests and single-user tools.</summary>
 /// <remarks>
 /// Named for what it does rather than something reassuring like
-/// <c>DefaultAuthorizer</c>, because it appears in registration code and
-/// somebody should notice it there.
+/// <c>DefaultAuthorizer</c>, so it is noticeable in registration code.
 /// </remarks>
 public sealed class GrantAllTools : IToolAuthorizer
 {
@@ -65,12 +63,10 @@ public sealed class ToolDeniedException(string tool, string permission)
 /// context and will happily call it.
 /// </para>
 /// <para>
-/// This is a change from the original design note, which proposed generating one
-/// narrowed facade <em>type</em> per permission set. That is combinatorial — the
-/// distinct sets a principal can hold is the powerset of the permissions in
-/// play, so eight permissions is 256 generated types. Filtering the menu and
-/// gating dispatch gets the same property (a tool you may not use is absent from
-/// what the model sees) without the explosion.
+/// Not one narrowed facade type per permission set: the sets a principal can
+/// hold are the powerset of the permissions in play, so eight permissions is
+/// 256 generated types. Filtering the menu and gating dispatch gets the same
+/// property without the explosion.
 /// </para>
 /// <para>
 /// The dispatch itself is generated: a switch on the name, with arguments

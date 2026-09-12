@@ -8,12 +8,10 @@ namespace AgentInfer.Tests;
 /// What a workflow cost, and the bound that stops it costing more.
 /// </summary>
 /// <remarks>
-/// The composition patterns are plain C# and need no framework surface — that
-/// is the library's argument and it holds. What it left missing was a place to
-/// hang a number on: six generation calls composed with <c>await</c> emitted
-/// six unrelated spans, and nothing bounded the whole. <c>MaxIterations</c>
-/// bounds one method's tool loop; six of those at sixteen is ninety-six
-/// requests with no ceiling anywhere.
+/// Composition is plain C# and needs no framework surface, which leaves nowhere
+/// to hang a number: several generation calls composed with <c>await</c> emit
+/// unrelated spans, and <c>MaxIterations</c> bounds one method's tool loop
+/// rather than the whole.
 /// </remarks>
 public sealed class AgentScopeTests
 {
@@ -128,9 +126,8 @@ public sealed class AgentScopeTests
         var error = await Assert.ThrowsAsync<AgentBudgetExceededException>(
             () => runner.CompleteTextAsync(Call(), Ct));
 
-        // Throwing is the decision MaxIterations got wrong first time round:
-        // cutting a model off and keeping its answer produced prose that read
-        // fine and was false.
+        // Throws rather than truncating: an answer written from a partial
+        // gather reads fine and is false.
         Assert.Equal("triage", error.Workflow);
         Assert.Equal(2, error.MaxRequests);
     }
