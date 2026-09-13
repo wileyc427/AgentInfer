@@ -25,7 +25,7 @@
       pull requests. The guard does not watch this file, so a package property
       edited here is on you.
     -->
-    <Version>0.3.2</Version>
+    <Version>0.3.3</Version>
     <Authors>wileyc427</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/wileyc427/AgentInfer</RepositoryUrl>

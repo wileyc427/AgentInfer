@@ -23,7 +23,9 @@ namespace Ledger;
 /// The options mirror what the reflective path set, and they have to: a
 /// context that camelCased differently, or did not respect required
 /// constructor parameters, would bind the same reply differently depending on
-/// which overload a method happened to take.
+/// which overload a method happened to take. What they mirror is
+/// <c>AgentJson.Default</c> and <c>AgentJson.Binding()</c>; nothing checks the
+/// two agree, so a property added there belongs here in the same change.
 /// </para>
 /// <para>
 /// <c>IReadOnlyList&lt;CategorySummary&gt;</c> is here because
@@ -34,6 +36,8 @@ namespace Ledger;
 /// </remarks>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    PropertyNameCaseInsensitive = true,
+    NumberHandling = JsonNumberHandling.AllowReadingFromString,
     UseStringEnumConverter = true,
     RespectNullableAnnotations = true,
     RespectRequiredConstructorParameters = true)]

@@ -30,6 +30,8 @@ namespace AgentInfer;
 /// <code>
 /// [JsonSourceGenerationOptions(
 ///     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+///     PropertyNameCaseInsensitive = true,
+///     NumberHandling = JsonNumberHandling.AllowReadingFromString,
 ///     UseStringEnumConverter = true,
 ///     RespectNullableAnnotations = true,
 ///     RespectRequiredConstructorParameters = true)]
