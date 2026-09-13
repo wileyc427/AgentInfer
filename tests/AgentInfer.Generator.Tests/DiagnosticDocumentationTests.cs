@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 
 using Microsoft.CodeAnalysis;
@@ -32,25 +31,16 @@ public sealed class DiagnosticDocumentationTests
             .OrderBy(d => d.Id, StringComparer.Ordinal)
     ];
 
-    private static string Authoring => File.ReadAllText(
-        Path.Combine(RepositoryRoot(), "docs", "authoring.md"));
-
     /// <remarks>
-    /// From this file rather than from the working directory, which a test
-    /// runner is free to set wherever it likes.
+    /// Copied beside the assembly by the project file, not located at run time.
+    /// Walking up from <c>[CallerFilePath]</c> was the first attempt and cannot
+    /// work: <c>ContinuousIntegrationBuild</c> is set on CI, which turns on
+    /// deterministic source paths, so the compiler bakes in
+    /// <c>/_/tests/...</c> — a path with no repository above it and no bearing
+    /// on where anything actually is.
     /// </remarks>
-    private static string RepositoryRoot([CallerFilePath] string here = "")
-    {
-        var directory = Path.GetDirectoryName(here)!;
-
-        while (!File.Exists(Path.Combine(directory, "AgentInfer.slnx")))
-        {
-            directory = Path.GetDirectoryName(directory)
-                ?? throw new InvalidOperationException("No AgentInfer.slnx above " + here);
-        }
-
-        return directory;
-    }
+    private static string Authoring => File.ReadAllText(
+        Path.Combine(AppContext.BaseDirectory, "docs", "authoring.md"));
 
     [Fact]
     public void There_is_something_to_check()
