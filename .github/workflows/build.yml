@@ -218,11 +218,27 @@ jobs:
     # gate between a tag and a permanent public artifact.
     environment: nuget.org
 
+    # Trusted publishing: nuget.org trades a GitHub OIDC token for a key that
+    # lives minutes, so there is no long-lived secret in this repository to leak
+    # or rotate. id-token: write is what lets the runner request that token.
     permissions:
       contents: read
+      id-token: write
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Fail here, with the fix in the message, rather than at the exchange with
+      # an error about an empty user.
+      - name: The nuget.org account must be named
+        run: |
+          if [ -z "${{ vars.NUGET_USER }}" ]; then
+            echo "Repository variable NUGET_USER is not set." >&2
+            echo "Settings > Secrets and variables > Actions > Variables > New" >&2
+            echo "repository variable, named NUGET_USER, set to the nuget.org" >&2
+            echo "account that owns the trusted publishing policy." >&2
+            exit 1
+          fi
 
       # A tag that disagrees with <Version> publishes something nobody asked
       # for, under a number that does not match the release notes.
@@ -246,10 +262,19 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # Exchanges the runner's OIDC token for a short-lived nuget.org key. The
+      # policy on nuget.org decides whether to honour it, and it is scoped to
+      # this repository and this workflow.
+      - name: Exchange the OIDC token for a nuget.org key
+        id: login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: ${{ vars.NUGET_USER }}
+
       # The same bytes the matrix tested and `pack` produced, symbols included.
       - name: Push to nuget.org
         run: >-
           dotnet nuget push "artifacts/*.nupkg"
           --source https://api.nuget.org/v3/index.json
-          --api-key ${{ secrets.NUGET_API_KEY }}
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
           --skip-duplicate
