@@ -30,18 +30,27 @@ section of the README.
 
 Lowercase, kebab-case, describing the change rather than a ticket number.
 
-| Type | |
-| --- | --- |
-| `feat` | new capability |
-| `fix` | a defect |
-| `docs` | prose only, including `docs/` and the README |
-| `ci` | the workflow, the version guard, dependabot |
-| `deps` | dependency moves that are not otherwise a fix |
-| `refactor` | behaviour unchanged |
-| `chore` | everything else |
+| Type | | Usually moves `<Version>` |
+| --- | --- | --- |
+| `feature` | new capability | yes |
+| `bug` | a defect | yes |
+| `docs` | prose only, including `docs/` and the README | no |
+| `ci` | the workflow, the version guard, dependabot | no |
+| `chore` | dependency bumps, renames, housekeeping | sometimes |
 
-So `fix/prompt-file-matches-two-entries`, not `fix/issue-42` and not
+So `bug/prompt-file-matches-two-entries`, not `bug/issue-42` and not
 `adam/wip`.
+
+Five types rather than a complete taxonomy, because a type you have to think
+about is a type people use inconsistently. A refactor and a dependency bump are
+both `chore` — the distinction between them has never mattered here, and the
+one that does is in the third column.
+
+That column is a hint, not a rule. `feature` and `bug` touch what ships, so
+`<Version>` moves in the same commit; `docs` and `ci` do not. `chore` is the
+one to read twice: a rename ships nothing, and a bump of a runtime dependency
+lands in the nuspec. `.github/version-guard.sh` is what actually decides, and
+it only looks at the diff.
 
 Two prefixes are reserved for automation and should not be used by hand:
 `claude/` for agent sessions and `dependabot/` for the bot.

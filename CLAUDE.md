@@ -108,8 +108,13 @@ statement about the suite, not history. Write the test instead.
 
 ## Branches
 
-See `CONTRIBUTING.md`. `<type>/<what-it-does>` in kebab-case; `claude/` and
+`<type>/<what-it-does>`, lowercase kebab-case, naming the change rather than a
+ticket: `feature/`, `bug/`, `docs/`, `ci/`, `chore/`. `claude/` and
 `dependabot/` are reserved for automation.
+
+`feature` and `bug` touch what ships, so `<Version>` moves in the same commit.
+`docs` and `ci` do not. `chore` depends on what it touched. `CONTRIBUTING.md`
+has the table and the reasoning.
 
 ## Never
 
