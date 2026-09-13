@@ -22,6 +22,38 @@ dotnet run --project samples/Intake      # a hand-written agent over generated t
 `samples/Ledger` is the exception and needs a real endpoint. See the Build
 section of the README.
 
+## Branches
+
+```
+<type>/<what-it-does>
+```
+
+Lowercase, kebab-case, describing the change rather than a ticket number.
+
+| Type | |
+| --- | --- |
+| `feat` | new capability |
+| `fix` | a defect |
+| `docs` | prose only, including `docs/` and the README |
+| `ci` | the workflow, the version guard, dependabot |
+| `deps` | dependency moves that are not otherwise a fix |
+| `refactor` | behaviour unchanged |
+| `chore` | everything else |
+
+So `fix/prompt-file-matches-two-entries`, not `fix/issue-42` and not
+`adam/wip`.
+
+Two prefixes are reserved for automation and should not be used by hand:
+`claude/` for agent sessions and `dependabot/` for the bot.
+
+The reason to care is that the name outlives the branch. GitHub puts it in the
+merge commit subject, where it becomes the permanent record of why a change
+landed — `Merge pull request #7 from wileyc427/claude/focused-hypatia-u8z8he`
+says nothing that a reader a year later can use. A branch named for its change
+produces a merge commit that reads as a sentence.
+
+CI builds every branch, so the name has no effect on what runs.
+
 ## Before you open a pull request
 
 CI runs ubuntu and windows, Debug and Release, and runs the two scripted samples
@@ -106,6 +138,16 @@ run it live before you open the PR:
 ```bash
 dotnet run --project samples/Incident -- --live --metrics
 ```
+
+## Working with an agent
+
+`CLAUDE.md` at the root carries the same rules as this file in the form an agent
+reads, plus the traps that fail silently. `.claude/skills/` holds the workflows
+worth doing the same way every time — `verify` before pushing, `add-diagnostic`
+for a new `AIN` rule, `release` for cutting a version.
+
+Keep them true. A stale instruction file is worse than none, because it is
+followed.
 
 ## Style
 
