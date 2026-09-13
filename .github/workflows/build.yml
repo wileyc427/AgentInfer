@@ -29,6 +29,12 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+    # ready_for_review is not in the default set, and leaving it out would be a
+    # hole rather than a saving: a draft does not build (see the decide step
+    # below), so its checks report success having compiled nothing. Marking it
+    # ready fires only this event, and without it the pull request stays
+    # mergeable on a build that never happened.
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 # The build reads. The publish job below asks for `packages: write` on its own,
@@ -86,6 +92,18 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = "tag" ] || [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             echo "A $GITHUB_EVENT_NAME on $GITHUB_REF_NAME builds unconditionally."
             echo "build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # A draft is work in progress by definition. Answered here rather
+          # than with an `if:` on the jobs, so the matrix still expands and
+          # reports its four names — a matrix skipped at the job level reports
+          # one check named after the unexpanded template, which is the trap
+          # this job exists to avoid. Four runner startups and nothing else,
+          # the same cost as a documentation-only change.
+          if [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            echo "Draft pull request. Nothing builds until it is marked ready."
+            echo "build=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
