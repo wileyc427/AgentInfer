@@ -71,6 +71,7 @@ internal static class ToolEmit
     {
         code.AppendLine();
         code.AppendLine("/// <summary>Dispatches these tools. Generated.</summary>");
+        code.AppendLine(GeneratedCode.Attribute);
         code.Append(accessibility).Append(" sealed partial class ").Append(invokerName)
             .AppendLine(" : global::AgentInfer.ToolInvoker");
         code.AppendLine("{");

@@ -38,6 +38,7 @@ internal static class RolesEmitter
         code.AppendLine("/// Pass to <c>ValidateRoles</c> so a role nothing registers fails at");
         code.AppendLine("/// startup instead of on the first call that needs it.");
         code.AppendLine("/// </remarks>");
+        code.AppendLine(GeneratedCode.Attribute);
         code.AppendLine("internal static class AgentInferRoles");
         code.AppendLine("{");
         code.Append("    public static readonly string[] All = [");

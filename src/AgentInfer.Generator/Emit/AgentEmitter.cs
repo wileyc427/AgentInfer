@@ -51,6 +51,7 @@ internal static class AgentEmitter
         code.AppendLine("/// <summary>");
         code.Append("/// Generated implementation of <see cref=\"").Append(model.InterfaceName).AppendLine("\"/>.");
         code.AppendLine("/// </summary>");
+        code.AppendLine(GeneratedCode.Attribute);
         code.Append(model.Accessibility)
             .Append(" sealed partial class ").Append(model.ImplementationName)
             .Append(" : ").AppendLine(model.InterfaceName);
@@ -172,6 +173,7 @@ internal static class AgentEmitter
 
         code.AppendLine();
         code.AppendLine("/// <summary>What the model is told, how it is bound, and what it must satisfy.</summary>");
+        code.AppendLine(GeneratedCode.Attribute);
         code.Append("file sealed class ").Append(name)
             .Append(" : global::AgentInfer.IReplyContract<").Append(method.ReturnType).AppendLine(">");
         code.AppendLine("{");
