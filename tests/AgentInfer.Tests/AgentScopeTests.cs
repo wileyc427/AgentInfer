@@ -243,4 +243,59 @@ public sealed class AgentScopeTests
 
         public void Dispose() => Disposals++;
     }
+    /// <summary>
+    /// The shape a web host produces: many independent scopes at once over one
+    /// shared runner and client, rather than one scope fanning out.
+    /// </summary>
+    [Fact]
+    public async Task Concurrent_scopes_count_only_their_own_traffic()
+    {
+        // One client and one runner, as AddAgentInferModels registers per role.
+        var runner = new AgentRunner(new FakeChatClient("ok"));
+
+        const int Scopes = 24;
+        const int CallsEach = 5;
+
+        var results = await Task.WhenAll(Enumerable.Range(0, Scopes).Select(i => Task.Run(async () =>
+        {
+            using var scope = AgentScope.Begin($"request-{i}");
+            for (var c = 0; c < CallsEach; c++)
+            {
+                await runner.CompleteTextAsync(Call(), Ct);
+            }
+
+            return (scope.Name, scope.Requests, scope.Operations);
+        }, Ct)));
+
+        Assert.All(results, r =>
+        {
+            Assert.Equal(CallsEach, r.Requests);
+            Assert.Equal(CallsEach, r.Operations);
+        });
+        Assert.Equal(Scopes, results.Select(r => r.Name).Distinct().Count());
+    }
+
+    /// <summary>One scope's traffic must not spend another scope's budget.</summary>
+    [Fact]
+    public async Task A_bound_is_not_consumed_by_a_concurrent_scope()
+    {
+        var runner = new AgentRunner(new FakeChatClient("ok"));
+
+        // One scope deliberately burns far more than another's bound allows.
+        var noisy = Task.Run(async () =>
+        {
+            using var scope = AgentScope.Begin("noisy");
+            for (var i = 0; i < 40; i++) await runner.CompleteTextAsync(Call(), Ct);
+        }, Ct);
+
+        var quiet = Task.Run(async () =>
+        {
+            using var scope = AgentScope.Begin("quiet", maxRequests: 3);
+            for (var i = 0; i < 3; i++) await runner.CompleteTextAsync(Call(), Ct);
+            return scope.Requests;
+        }, Ct);
+
+        await noisy;
+        Assert.Equal(3, await quiet);
+    }
 }
