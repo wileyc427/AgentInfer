@@ -24,6 +24,13 @@ public sealed class ReplyContractTests
 
         public sealed record Verdict(bool Approved, [property: Range(1, 5)] int Score);
 
+        [JsonSourceGenerationOptions(
+            PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+            PropertyNameCaseInsensitive = true,
+            NumberHandling = JsonNumberHandling.AllowReadingFromString,
+            UseStringEnumConverter = true,
+            RespectNullableAnnotations = true,
+            RespectRequiredConstructorParameters = true)]
         [JsonSerializable(typeof(Verdict))]
         internal partial class DemoJson : JsonSerializerContext;
 
@@ -92,6 +99,13 @@ public sealed class ReplyContractTests
             public sealed record Detail([property: Range(0, 100)] int Confidence);
             public sealed record Verdict(bool Approved, Detail Detail);
 
+            [JsonSourceGenerationOptions(
+                PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true,
+                NumberHandling = JsonNumberHandling.AllowReadingFromString,
+                UseStringEnumConverter = true,
+                RespectNullableAnnotations = true,
+                RespectRequiredConstructorParameters = true)]
             [JsonSerializable(typeof(Verdict))]
             internal partial class DemoJson : JsonSerializerContext;
 
@@ -129,6 +143,13 @@ public sealed class ReplyContractTests
                 [property: MaxLength(200)] string Summary,
                 [property: MinLength(1)] List<string> Problems);
 
+            [JsonSourceGenerationOptions(
+                PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true,
+                NumberHandling = JsonNumberHandling.AllowReadingFromString,
+                UseStringEnumConverter = true,
+                RespectNullableAnnotations = true,
+                RespectRequiredConstructorParameters = true)]
             [JsonSerializable(typeof(Verdict))]
             internal partial class DemoJson : JsonSerializerContext;
 
@@ -186,6 +207,13 @@ public sealed class ReplyContractTests
             public sealed record Verdict(bool Approved);
             public sealed record Summary(string Text);
 
+            [JsonSourceGenerationOptions(
+                PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true,
+                NumberHandling = JsonNumberHandling.AllowReadingFromString,
+                UseStringEnumConverter = true,
+                RespectNullableAnnotations = true,
+                RespectRequiredConstructorParameters = true)]
             [JsonSerializable(typeof(Verdict))]
             internal partial class DemoJson : JsonSerializerContext;
 

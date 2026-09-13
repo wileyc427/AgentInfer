@@ -30,6 +30,13 @@ public sealed class BoundsTests
 
         {{record}}
 
+        [JsonSourceGenerationOptions(
+            PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+            PropertyNameCaseInsensitive = true,
+            NumberHandling = JsonNumberHandling.AllowReadingFromString,
+            UseStringEnumConverter = true,
+            RespectNullableAnnotations = true,
+            RespectRequiredConstructorParameters = true)]
         [JsonSerializable(typeof(Verdict))]
         internal partial class DemoJson : JsonSerializerContext;
 

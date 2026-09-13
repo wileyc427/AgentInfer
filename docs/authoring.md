@@ -56,13 +56,13 @@ Two deliberate limits:
 
 # The diagnostics are the product
 
-Sixteen rules, each a failure that was cheap to hit and expensive to notice,
+Seventeen rules, each a failure that was cheap to hit and expensive to notice,
 moved from run time to the build. The corollary is a rule this project tries to
 hold: **a feature that cannot be diagnosed at compile time should be questioned
 before it is added.**
 
-Fourteen are errors. Two are warnings, because they describe a surface that
-works and is probably not what you meant.
+Fourteen are errors. Three are warnings, because they describe a surface
+that works and is probably not what you meant.
 
 | Rule | | |
 | --- | --- | --- |
@@ -82,6 +82,7 @@ works and is probably not what you meant.
 | [`AIN014`](#ain014) | Return type is not declared in the JSON context | Error |
 | [`AIN015`](#ain015) | Property is bounded twice | Error |
 | [`AIN016`](#ain016) | Tool result cannot be rendered | Error |
+| [`AIN017`](#ain017) | JSON context disagrees with the binding options | Warning |
 
 ### AIN001
 
@@ -311,3 +312,26 @@ internal partial class LedgerJson : JsonSerializerContext;
 
 Those six lines cannot be emitted for you; [Typed replies](typed-replies.md)
 explains why, and what the context buys beyond this error.
+
+### AIN017
+
+**JSON context disagrees with the binding options** · Warning
+
+> '{0}' does not set {1}. AgentInfer's reflective path does, so the same reply
+> binds differently depending on which overload a method takes.
+
+A context declares its own options and the reflective path has its own, and
+nothing but this connects them. When they disagree the same reply binds one way
+through `CompleteJsonReflectivelyAsync` and another through an
+`IReplyContract` — which is what the remarks on every context say must not
+happen, and what was true of all five in this repository until something
+checked. A model answering `"score": "4"` bound on one path and threw on the
+other, and a number arriving as a string is the most common thing a model gets
+wrong about JSON.
+
+A warning rather than an error. The code compiles and runs; it binds
+differently. Making it an error would break every consumer who already declared
+a narrower context, for a divergence they may never hit.
+
+The message names only the options that disagree, so it is also the fix.
+[AIN016](#ain016) shows the whole declaration.
