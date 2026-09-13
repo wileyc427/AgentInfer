@@ -37,6 +37,57 @@ env:
   NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 
 jobs:
+  # Eight runners — two operating systems, two configurations, a restore, the
+  # test suite and both samples — for a paragraph in a markdown file. This is
+  # what decides that a change is prose and the rest of the workflow can sit it
+  # out.
+  #
+  # A job that skips rather than `paths-ignore:` on the trigger, because under
+  # branch protection the two are not interchangeable. A required check whose
+  # workflow never ran waits for a status nothing will ever report, and the pull
+  # request never becomes mergeable; a job skipped by an `if:` reports the
+  # conclusion `skipped`, which counts as passing. The workflow always triggers
+  # and the jobs decide for themselves.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The comparison needs the default branch, which a shallow clone does
+          # not have.
+          fetch-depth: 0
+
+      - name: Decide whether anything needs building
+        id: decide
+        run: |
+          # A tag is a release, and its diff against main is empty by
+          # construction — main is where it was tagged from. Deciding by diff
+          # would skip `pack` and leave `release` with no artifact to publish.
+          # Trigger-level path filters carry the same exemption for the same
+          # reason.
+          if [ "$GITHUB_REF_TYPE" = "tag" ] || [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "A $GITHUB_EVENT_NAME on $GITHUB_REF_NAME builds unconditionally."
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The same base as the version guard, chosen for the same reason: on
+          # the default branch the question is what this push added to it,
+          # anywhere else it is what the branch adds.
+          if [ "$GITHUB_REF" = "refs/heads/${{ github.event.repository.default_branch }}" ] \
+             && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            base="${{ github.event.before }}"
+          else
+            base="origin/${{ github.event.repository.default_branch }}"
+          fi
+
+          echo "build=$(.github/build-needed.sh "$base")" >> "$GITHUB_OUTPUT"
+
   # Cheap, first, and catching something otherwise silent: the publish job skips
   # duplicates, so a change that does not raise <Version> publishes nothing and
   # still reports green, leaving consumers on the previous assembly.
@@ -45,7 +96,8 @@ jobs:
   # the merge.
   version:
     name: version
-    if: "!startsWith(github.ref, 'refs/tags/')"
+    needs: changes
+    if: ${{ needs.changes.outputs.build == 'true' && !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
 
     steps:
@@ -72,8 +124,16 @@ jobs:
 
           .github/version-guard.sh "$base"
 
+  # Guarded step by step rather than with an `if:` on the job, which is not a
+  # style choice. A matrix job skipped at the job level reports a single check
+  # named after the unexpanded template — literally
+  # "${{ matrix.os }} / ${{ matrix.configuration }}" — so the four names branch
+  # protection requires never appear, and the pull request waits forever for a
+  # status nothing will report. Running the cells and doing nothing in them
+  # costs four runner startups and reports all four names.
   build:
     name: ${{ matrix.os }} / ${{ matrix.configuration }}
+    needs: changes
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -85,11 +145,23 @@ jobs:
         configuration: [Debug, Release]
 
     steps:
+      - name: Say whether this cell is building
+        shell: bash
+        run: |
+          if [ "${{ needs.changes.outputs.build }}" = "true" ]; then
+            echo "Building ${{ matrix.os }} / ${{ matrix.configuration }}."
+          else
+            echo "Documentation only. Every step below is skipped, and this"
+            echo "cell exists so that its name is reported at all."
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: needs.changes.outputs.build == 'true'
 
       # The SDK builds both targets; the net8.0 runtime is what runs the net8.0
       # half of the test matrix. Without it those tests are compiled and skipped.
       - name: Install the SDK this repo pins, and the net8.0 runtime
+        if: needs.changes.outputs.build == 'true'
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: '8.0.x'
@@ -98,18 +170,22 @@ jobs:
       # Printed because the generator's behavior depends on it, and "which SDK
       # was that" is the first question every generator failure asks.
       - name: Report the toolchain
+        if: needs.changes.outputs.build == 'true'
         run: dotnet --info
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        if: needs.changes.outputs.build == 'true'
         with:
           path: ${{ github.workspace }}/.nuget/packages
           key: nuget-${{ matrix.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
           restore-keys: nuget-${{ matrix.os }}-
 
       - name: Restore
+        if: needs.changes.outputs.build == 'true'
         run: dotnet restore
 
       - name: Build
+        if: needs.changes.outputs.build == 'true'
         run: dotnet build --no-restore -c ${{ matrix.configuration }} -warnaserror
 
       # Microsoft.Testing.Platform, not VSTest: the runner is selected in
@@ -117,6 +193,7 @@ jobs:
       # the test executable rather than to the SDK, hence the separator. It
       # writes one file per assembly per framework, so nothing collides.
       - name: Test
+        if: needs.changes.outputs.build == 'true'
         run: >-
           dotnet test --no-build -c ${{ matrix.configuration }}
           --results-directory ${{ github.workspace }}/test-results
@@ -129,13 +206,15 @@ jobs:
       # Both, because they cover different halves: Incident runs a fully
       # generated agent, Intake a hand-written one over generated tools.
       - name: Run the incident sample
+        if: needs.changes.outputs.build == 'true'
         run: dotnet run --project samples/Incident --no-build -c ${{ matrix.configuration }}
 
       - name: Run the intake sample
+        if: needs.changes.outputs.build == 'true'
         run: dotnet run --project samples/Intake --no-build -c ${{ matrix.configuration }}
 
       - name: Upload test results
-        if: always()
+        if: always() && needs.changes.outputs.build == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: test-results-${{ matrix.os }}-${{ matrix.configuration }}
@@ -144,8 +223,10 @@ jobs:
 
   pack:
     name: pack
+    # A static name, so unlike the matrix this one may skip at the job level.
+    if: ${{ needs.changes.outputs.build == 'true' }}
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, changes]
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
