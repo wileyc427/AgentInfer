@@ -227,6 +227,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The ancestry check below compares against main, which a shallow
+          # clone of a tag does not have.
+          fetch-depth: 0
 
       # Fail here, with the fix in the message, rather than at the exchange with
       # an error about an empty user.
@@ -252,6 +256,29 @@ jobs:
             exit 1
           fi
           echo "Tag and version agree on $version."
+
+      # A tag can point anywhere. Restricting who may create one is a different
+      # question from what it may point at, and only this answers the second.
+      #
+      # main requires a pull request with passing checks, so "reachable from
+      # main" transitively means reviewed and green. Without this, pushing a
+      # branch and tagging it publishes to nuget.org having skipped both —
+      # permanently, since a published version can only be delisted.
+      #
+      # Before the OIDC exchange, so no credential is minted for a tag that
+      # should not publish. FETCH_HEAD rather than origin/main, because whether
+      # a remote-tracking ref exists depends on how the checkout was configured;
+      # the fetch on the line above always sets FETCH_HEAD.
+      - name: The tag must point at a commit on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "Tag $GITHUB_REF_NAME points at $GITHUB_SHA, which is not on main." >&2
+            echo "nuget.org is permanent, so only reviewed commits are publishable." >&2
+            echo "Merge the change first, then tag the merge commit." >&2
+            exit 1
+          fi
+          echo "$GITHUB_SHA is on main."
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
