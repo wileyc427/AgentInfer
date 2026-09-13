@@ -5,7 +5,7 @@ using Xunit;
 namespace AgentInfer.Generator.Tests;
 
 /// <summary>
-/// The build errors that replace the other framework's runtime surprises.
+/// The build errors that turn run-time surprises into compile-time ones.
 /// </summary>
 /// <remarks>
 /// Each case names the failure it prevents. These are the product, so they get
@@ -16,8 +16,8 @@ public sealed class DiagnosticTests
     private static string[] Ids(string source) =>
         [.. GeneratorHarness.Run(source).Diagnostics.Select(d => d.Id)];
 
-    /// <summary>NOOA: an f-string is not a docstring, so you silently inherit
-    /// the framework's own internal prompt.</summary>
+    /// <summary>An agent with no prompt runs on whatever the runtime
+    /// supplies.</summary>
     [Fact]
     public void An_empty_agent_prompt_is_AIN001() =>
         Assert.Contains("AIN001", Ids("""
@@ -26,8 +26,8 @@ public sealed class DiagnosticTests
             public interface IThing { }
             """));
 
-    /// <summary>NOOA: a method with no docstring gets an empty task prompt and
-    /// behaves almost right.</summary>
+    /// <summary>A method with no prompt gets an empty task and behaves almost
+    /// right.</summary>
     [Fact]
     public void A_method_without_a_prompt_is_AIN002() =>
         Assert.Contains("AIN002", Ids("""
@@ -45,9 +45,8 @@ public sealed class DiagnosticTests
             public interface IThing { [Prompt("Do it.")] public string Do(); }
             """));
 
-    /// <summary>The one that cost a week: in NOOA an undecorated method silently
-    /// executes model-written code. Here asking for CodeAct fails loudly until
-    /// the sandbox exists, rather than quietly downgrading to Predict.</summary>
+    /// <summary>Asking for code execution fails loudly while no sandbox exists,
+    /// rather than quietly downgrading to Predict.</summary>
     [Fact]
     public void Asking_for_CodeAct_is_AIN004() =>
         Assert.Contains("AIN004", Ids("""

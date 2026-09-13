@@ -16,7 +16,7 @@ namespace AgentInfer;
 /// object cannot make its own methods unreachable. A generated facade has no
 /// such method to reach: capability, not a check.
 /// </para>
-/// <para>Reserved for P2.</para>
+/// <para>Reserved.</para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = true, Inherited = false)]
 public sealed class RequiresPermissionAttribute : Attribute

@@ -27,6 +27,6 @@ public enum Strategies
     /// Requires a registered sandbox — a host with a CodeAct agent and no
     /// sandbox fails at startup rather than on the first call.
     /// </summary>
-    /// <remarks>Not implemented in P1. Reserved so the value is stable.</remarks>
+    /// <remarks>Not implemented. Reserved so the value is stable.</remarks>
     CodeAct = 1,
 }

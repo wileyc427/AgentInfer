@@ -3,13 +3,12 @@ using Microsoft.CodeAnalysis;
 namespace AgentInfer.Generator;
 
 /// <summary>
-/// The build errors that replace the other framework's runtime surprises.
+/// The build errors that turn run-time surprises into compile-time ones.
 /// </summary>
 /// <remarks>
-/// This is the argument for the whole approach, so it is worth keeping the
-/// provenance next to each rule. Every descriptor below is a failure that
-/// actually happened while building a Python project against NOOA, moved from
-/// production to the build.
+/// Each descriptor below is a failure that is cheap to write and expensive to
+/// notice, moved from run time to the build. The summary on each says what it
+/// would otherwise cost.
 /// <para>
 /// The corollary is a design rule: <b>a feature that cannot be diagnosed at
 /// compile time should be questioned before it is added.</b>
@@ -20,9 +19,9 @@ internal static class Diagnostics
     private const string Category = "AgentInfer";
 
     /// <summary>
-    /// NOOA equivalent: an f-string is not a docstring, so the class silently
-    /// inherits the framework's own internal prompt — about 1.5KB of CodeAct
-    /// boilerplate — with no error anywhere.
+    /// An agent with no prompt is not an error at run time — it is an agent
+    /// running on whatever generic instruction the runtime supplies, which
+    /// answers plausibly and is nobody's intent.
     /// </summary>
     public static readonly DiagnosticDescriptor MissingAgentPrompt = new(
         id: "AIN001",
@@ -33,8 +32,8 @@ internal static class Diagnostics
         isEnabledByDefault: true);
 
     /// <summary>
-    /// NOOA equivalent: a method with no docstring gets an empty task prompt and
-    /// behaves almost right, which is worse than failing.
+    /// A method with no prompt gets an empty task and behaves almost right,
+    /// which is worse than failing.
     /// </summary>
     public static readonly DiagnosticDescriptor MissingMethodPrompt = new(
         id: "AIN002",
@@ -45,8 +44,8 @@ internal static class Diagnostics
         isEnabledByDefault: true);
 
     /// <summary>
-    /// NOOA equivalent: a return annotation the strategy cannot satisfy fails on
-    /// the first call, after the model has been paid for.
+    /// A return type nothing can bind fails on the first call, after the model
+    /// has already been paid for.
     /// </summary>
     public static readonly DiagnosticDescriptor UnsupportedReturnType = new(
         id: "AIN003",
@@ -57,14 +56,15 @@ internal static class Diagnostics
         isEnabledByDefault: true);
 
     /// <summary>
-    /// The one that cost a week: NOOA's default strategy executes model-written
-    /// code, so an undecorated method runs a REPL nobody asked for. Here CodeAct
-    /// is opt-in and, until P3, saying so is an error rather than a surprise.
+    /// Executing model-written code is opt-in here, and not yet available at
+    /// all. Asking for it is an error rather than a method that silently does
+    /// something else — a strategy that runs generated code should never be
+    /// what you get by not choosing.
     /// </summary>
     public static readonly DiagnosticDescriptor CodeActNotAvailable = new(
         id: "AIN004",
-        title: "CodeAct is not implemented",
-        messageFormat: "'{0}' asks for Strategies.CodeAct, which needs a sandbox and a broker (P3). Use Predict, which is the default.",
+        title: "Code execution is not implemented",
+        messageFormat: "'{0}' asks for Strategies.CodeAct, which needs a sandbox this library does not provide. Use Predict, which is the default.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -121,11 +121,9 @@ internal static class Diagnostics
         isEnabledByDefault: true);
 
     /// <summary>
-    /// NOOA equivalent: <c>@hidden</c> keeps a method out of the generated docs
-    /// and leaves it perfectly callable, because an in-process object cannot
-    /// make its own methods unreachable. Here every tool states its permission
-    /// and the generator narrows what is bound — so the answer to "may this
-    /// caller reach it" is decided before anything runs.
+    /// Keeping a method out of the documentation leaves it perfectly callable.
+    /// Here every tool states its permission and the generator narrows what is
+    /// bound, so "may this caller reach it" is answered before anything runs.
     /// </summary>
     public static readonly DiagnosticDescriptor MissingToolPermission = new(
         id: "AIN006",

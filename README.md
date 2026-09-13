@@ -23,6 +23,30 @@ implements the interface, and takes an `AgentRunner`. Consumers inject
 `ILedgerAnalyst`, so mocking an agent in a test needs no framework support and
 no model.
 
+## What this is
+
+**Experimental.** The version is below 1.0 and means it: the API can still
+change, and it has not been run in anger by anyone but me.
+
+It was inspired by [NOOA](https://github.com/NVIDIA-NeMo/labs-OO-Agents),
+NVIDIA's object-oriented agent framework for Python, which makes an agent an
+ordinary class instead of a graph, a chain or a pile of configuration. That idea
+seemed worth having in C#, where a static type system and a compiler that runs
+long before anything ships can carry more of the weight — a prompt that is
+missing, a tool parameter that cannot be described, a return type nothing can
+bind, all of it can be a build error rather than a surprise in a trace.
+
+I am a full-stack web developer who likes C#. There is far more AI tooling in
+Python than in .NET, and rather than wait for that to even out I wanted to put
+something into the ecosystem and find out what the idea costs in a language
+built around types and compile-time checks. Most of what is here exists because
+pointing it at a small local model showed it was needed.
+
+**Code generation and execution are not implemented.** The model picks which
+declared tool to call and with what arguments — that is all. It does not write
+code, and nothing here runs code a model produced. Adding it would mean adding a
+sandbox and a way to opt in visibly, and it may happen; it has not.
+
 ## Install
 
 ```bash
@@ -46,9 +70,9 @@ The generator, the attributes, a Predict runtime over
 bounding a whole workflow, and `IReplyContract` for a typed reply that binds
 without reflection — all verified end to end against a stub endpoint.
 
-**There is no sandbox and no CodeAct.** This library chooses which declared tool
-to call and with what arguments, and nothing more. Treat every `[AgentTool]` you
-declare as reachable by anyone who can influence the model's input.
+**There is no sandbox, and nothing here executes model-written code.** Treat
+every `[AgentTool]` you declare as reachable by anyone who can influence the
+model's input, and gate it accordingly.
 
 The trim and AOT analyzers are on for everything that ships, so the claim that
 nothing is discovered at run time is checked by the build rather than asserted

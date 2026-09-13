@@ -91,7 +91,8 @@ public sealed class InstrumentationTests
 
         var summary = logger.Lines.Single(l => l.Contains("tools offered"));
 
-        // The number that decides P3, in a line somebody reads while developing.
+        // The number that decides whether generated code would pay, in a line
+        // somebody reads while developing.
         Assert.Contains("1 of 2 tools offered", summary);
         Assert.Contains("4 call(s)", summary);
         Assert.Contains("TotalFor×4", summary);

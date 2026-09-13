@@ -17,11 +17,10 @@ namespace AgentInfer;
 ///   <item>The implementation is generated to disk and can simply be read.</item>
 /// </list>
 /// <para>
-/// The cost, stated plainly: changing a prompt is a recompile. That is close to
-/// a wash against a docstring-based design, which needs a process restart
-/// anyway, but it does mean prompts cannot be swapped at run time. If that is
-/// ever wanted it arrives as an explicit, opt-in provider — and prompts loaded
-/// from outside the assembly are untrusted input.
+/// The cost, stated plainly: changing a prompt is a recompile, so prompts
+/// cannot be swapped at run time. If that is ever wanted it arrives as an
+/// explicit, opt-in provider — and a prompt loaded from outside the assembly is
+/// untrusted input.
 /// </para>
 /// <para>
 /// <see cref="PromptFile"/> moves the text out of the attribute without giving

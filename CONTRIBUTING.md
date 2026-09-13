@@ -22,6 +22,47 @@ dotnet run --project samples/Intake      # a hand-written agent over generated t
 `samples/Ledger` is the exception and needs a real endpoint. See the Build
 section of the README.
 
+## Branches
+
+```
+<type>/<what-it-does>
+```
+
+Lowercase, kebab-case, describing the change rather than a ticket number.
+
+| Type | | Usually moves `<Version>` |
+| --- | --- | --- |
+| `feature` | new capability | yes |
+| `bug` | a defect | yes |
+| `docs` | prose only, including `docs/` and the README | no |
+| `ci` | the workflow, the version guard, dependabot | no |
+| `chore` | dependency bumps, renames, housekeeping | sometimes |
+
+So `bug/prompt-file-matches-two-entries`, not `bug/issue-42` and not
+`adam/wip`.
+
+Five types rather than a complete taxonomy, because a type you have to think
+about is a type people use inconsistently. A refactor and a dependency bump are
+both `chore` — the distinction between them has never mattered here, and the
+one that does is in the third column.
+
+That column is a hint, not a rule. `feature` and `bug` touch what ships, so
+`<Version>` moves in the same commit; `docs` and `ci` do not. `chore` is the
+one to read twice: a rename ships nothing, and a bump of a runtime dependency
+lands in the nuspec. `.github/version-guard.sh` is what actually decides, and
+it only looks at the diff.
+
+Two prefixes are reserved for automation and should not be used by hand:
+`claude/` for agent sessions and `dependabot/` for the bot.
+
+The reason to care is that the name outlives the branch. GitHub puts it in the
+merge commit subject, where it becomes the permanent record of why a change
+landed — `Merge pull request #7 from wileyc427/claude/focused-hypatia-u8z8he`
+says nothing that a reader a year later can use. A branch named for its change
+produces a merge commit that reads as a sentence.
+
+CI builds every branch, so the name has no effect on what runs.
+
 ## Before you open a pull request
 
 CI runs ubuntu and windows, Debug and Release, and runs the two scripted samples
@@ -106,6 +147,16 @@ run it live before you open the PR:
 ```bash
 dotnet run --project samples/Incident -- --live --metrics
 ```
+
+## Working with an agent
+
+`CLAUDE.md` at the root carries the same rules as this file in the form an agent
+reads, plus the traps that fail silently. `.claude/skills/` holds the workflows
+worth doing the same way every time — `verify` before pushing, `add-diagnostic`
+for a new `AIN` rule, `release` for cutting a version.
+
+Keep them true. A stale instruction file is worse than none, because it is
+followed.
 
 ## Style
 

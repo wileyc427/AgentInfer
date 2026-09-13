@@ -32,7 +32,7 @@ internal sealed class FakeChatClient(string reply) : IChatClient
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
         CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException("Streaming is not part of P1.");
+        throw new NotSupportedException("Streaming is not implemented.");
 
     public object? GetService(Type serviceType, object? serviceKey = null) => null;
 
