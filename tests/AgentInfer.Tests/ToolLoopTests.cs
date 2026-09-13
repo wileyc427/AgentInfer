@@ -69,7 +69,9 @@ public sealed class ToolLoopTests
 
         public object? GetService(Type serviceType, object? serviceKey = null) => null;
 
-        public void Dispose() { }
+        public int Disposals { get; private set; }
+
+        public void Dispose() => Disposals++;
     }
 
     private static AgentCall Call() => new()
@@ -209,5 +211,27 @@ public sealed class ToolLoopTests
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
             () => runner.CompleteWithToolsAsync(Call(), new Ledger(), GrantAllTools.Instance, 0, Ct));
+    }
+    [Fact]
+    public async Task A_client_the_runner_was_handed_survives_the_call()
+    {
+        var client = new ScriptedClient("TotalFor");
+        var runner = new AgentRunner(client);
+
+        var first = await runner.CompleteWithToolsAsync(
+            Call(), new Ledger(), new GrantedPermissions(["ledger.read"]), ct: Ct);
+
+        var second = await runner.CompleteWithToolsAsync(
+            Call(), new Ledger(), new GrantedPermissions(["ledger.read"]), ct: Ct);
+
+        // The tool path wraps the client in a FunctionInvokingChatClient and
+        // disposes that wrapper once the call is done. DelegatingChatClient
+        // disposes what it wraps, so the caller's client is only still open
+        // here because CountingChatClient refuses to pass the call along. Take
+        // that refusal out and the first call closes a client the runner never
+        // owned, which a host sharing one client per role finds on the second.
+        Assert.Equal(0, client.Disposals);
+        Assert.NotEmpty(first);
+        Assert.NotEmpty(second);
     }
 }
