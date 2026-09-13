@@ -41,6 +41,29 @@ so with the line to paste. Paths in the attribute are relative to the project
 directory; the generator resolves them against `ProjectDir`, which the SDK
 already makes visible to analyzers.
 
+## Laying out a project
+
+Flat files named for what they hold, and one directory:
+
+```
+Prompts/ledger-analyst.md   prompt files, read at compile time
+LedgerAgents.cs             the [Agent] interfaces and the types they return
+LedgerTools.cs              the [AgentTools] class
+LedgerJson.cs               the JSON context, if this project needs one
+ModelRoles.cs               role names, so they are not string literals
+Program.cs                  composition
+appsettings.json            providers, and which model serves each role
+```
+
+`Prompts/` is the only directory the build knows by name, and only because the
+package globs `Prompts/**/*.md` into `AdditionalFiles`. Anything else listed
+there works; the glob is a default, not a requirement.
+
+All three samples are this shape, and none of them nests further. A project
+with twenty agents would earn `Agents/` and `Tools/`, and the rest of the list
+would not change — [the context stays one file](json-contexts.md) however large
+the project gets, and most projects have no context at all.
+
 Two deliberate limits:
 
 - **Method prompts and tool descriptions stay in attributes.** They are

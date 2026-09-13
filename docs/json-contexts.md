@@ -125,6 +125,36 @@ binds with, or the same reply binds differently depending on which overload a
 method happened to take; `AIN017` says so at build. See
 [AIN017](authoring.md#ain017).
 
+## One file, and one is enough
+
+A context is a bag of `JsonTypeInfo` with no notion of what each entry is for.
+The same one serves every agent and every tool in the assembly —
+`samples/Ledger` registers a tool result and a reply type side by side — and
+`[assembly: AgentInferJson]` is `AllowMultiple = false` because there is
+nothing a second context could do that another line in the first does not.
+
+It also has to be one *file*. Splitting the `partial` across two looks
+reasonable and fails with an error that reads like your mistake; see
+[Gotchas](gotchas.md).
+
+So: one file, named for the project, beside the agents and tools it serves —
+`LedgerJson.cs` next to `LedgerAgents.cs` and `LedgerTools.cs`. A directory for
+it would hold one file forever.
+
+What is worth writing down is **why it exists**, because that is the part
+nobody can recover later:
+
+```csharp
+// Required: LedgerTools.Overview() returns IReadOnlyList<CategorySummary>, which
+// no ToolResult.Render overload takes — AIN016. Verdict rides along because the
+// context is already here, not because anything in this project is trimmed.
+internal partial class LedgerJson : JsonSerializerContext;
+```
+
+Two facts, and which of them is load-bearing. Delete `Overview()` a year from
+now and that comment is the difference between removing the context and leaving
+it in place because nobody could tell whether it was still needed.
+
 ## Why it is boilerplate
 
 Because **Roslyn has no way for one generator to ask another for output.**
