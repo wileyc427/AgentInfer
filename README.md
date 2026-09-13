@@ -25,7 +25,7 @@ no model.
 
 ## What this is
 
-**Experimental.** The version is below 1.0 and means it: the API can still
+⚠️ **Experimental.** The version is below 1.0 and means it: the API can still
 change, and it has not been run in anger by anyone but me.
 
 It was inspired by [NOOA](https://github.com/NVIDIA-NeMo/labs-OO-Agents),
