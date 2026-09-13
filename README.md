@@ -82,7 +82,7 @@ here.
 
 |                                                                                                |                                                                       |
 | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| [Prompts and diagnostics](https://github.com/wileyc427/AgentInfer/blob/main/docs/authoring.md) | Prompt files, and the sixteen build errors that check them            |
+| [Prompts and diagnostics](https://github.com/wileyc427/AgentInfer/blob/main/docs/authoring.md) | Prompt files, and the sixteen rules that check them, one section each |
 | [Tools](https://github.com/wileyc427/AgentInfer/blob/main/docs/tools.md)                       | Compile-time schemas, optional arguments, enforced permissions        |
 | [Models and roles](https://github.com/wileyc427/AgentInfer/blob/main/docs/models.md)           | Binding a role to a model, and keeping credentials out of the file    |
 | [Composing agents](https://github.com/wileyc427/AgentInfer/blob/main/docs/composing.md)        | Chaining, routing, agent-as-tool, and when to write the class by hand |
