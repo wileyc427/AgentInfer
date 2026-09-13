@@ -136,6 +136,13 @@ public sealed class StandaloneToolsTests
 
             public sealed record Row(string Name, decimal Total);
 
+            [JsonSourceGenerationOptions(
+                PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true,
+                NumberHandling = JsonNumberHandling.AllowReadingFromString,
+                UseStringEnumConverter = true,
+                RespectNullableAnnotations = true,
+                RespectRequiredConstructorParameters = true)]
             [JsonSerializable(typeof(IReadOnlyList<Row>))]
             internal partial class DemoJson : JsonSerializerContext;
 

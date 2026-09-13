@@ -135,6 +135,26 @@ public sealed class AgentGenerator : IIncrementalGenerator
             }
         });
 
+        // The declared context, checked once for the whole assembly rather than
+        // once per agent. [assembly: AgentInferJson] attaches to a compilation
+        // unit, so this fires exactly as often as it is written — reporting it
+        // from the agent path instead would repeat it for every agent in the
+        // assembly and say nothing new.
+        var jsonOptions = context.SyntaxProvider
+            .ForAttributeWithMetadataName(
+                AgentInferJsonAttribute,
+                predicate: static (node, _) => node is CompilationUnitSyntax,
+                transform: static (ctx, _) => OptionDrift(ctx))
+            .Where(static drift => !drift.IsDefaultOrEmpty);
+
+        context.RegisterSourceOutput(jsonOptions, static (spc, diagnostics) =>
+        {
+            foreach (var diagnostic in diagnostics)
+            {
+                spc.ReportDiagnostic(diagnostic);
+            }
+        });
+
         context.RegisterSourceOutput(resolved, static (spc, result) =>
         {
             foreach (var diagnostic in result!.Diagnostics)
@@ -171,6 +191,37 @@ public sealed class AgentGenerator : IIncrementalGenerator
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// <c>AIN017</c> for a context whose options disagree with the reflective
+    /// path, or empty.
+    /// </summary>
+    /// <remarks>
+    /// Silent when the attribute names something that is not a context: that is
+    /// <c>AIN013</c>'s to report, and two diagnostics for one mistake is worse
+    /// than one.
+    /// </remarks>
+    private static ImmutableArray<Diagnostic> OptionDrift(GeneratorAttributeSyntaxContext ctx)
+    {
+        if (ctx.Attributes.FirstOrDefault()?.ConstructorArguments.FirstOrDefault().Value
+            is not INamedTypeSymbol context || !IsJsonContext(context))
+        {
+            return ImmutableArray<Diagnostic>.Empty;
+        }
+
+        var missing = BindingOptions.MissingFrom(context);
+
+        if (missing.IsEmpty) return ImmutableArray<Diagnostic>.Empty;
+
+        return
+        [
+            Diagnostic.Create(
+                Diagnostics.JsonContextOptionsDiverge,
+                Location(context),
+                context.Name,
+                string.Join(", ", missing))
+        ];
     }
 
     /// <summary>Whether this type is a <c>JsonSerializerContext</c>.</summary>

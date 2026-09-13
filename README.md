@@ -3,7 +3,7 @@
 Object-oriented agents for .NET. An agent is an interface, and a Roslyn
 generator writes the implementation at build time — deriving each tool's JSON
 schema from its signature, binding replies without reflection, and reporting
-sixteen classes of mistake at build time rather than as a surprise in a
+seventeen classes of mistake at build time rather than as a surprise in a
 trace.
 
 ```csharp
@@ -43,10 +43,10 @@ does. The argument is what stops being true only at run time:
   what lets the typed path survive trimming and Native AOT. The trim and AOT
   analyzers are on for everything that ships, so that is checked rather than
   claimed.
-- **Sixteen rules run on every build.** An empty prompt, a `[Flags]` enum in a
+- **Seventeen rules run on every build.** An empty prompt, a `[Flags]` enum in a
   schema position, a return type nothing can bind, a tool result no serializer
   declares — reported at build instead of by a paid call that comes back
-  wrong. Fourteen are errors; two are warnings.
+  wrong. Fourteen are errors; three are warnings.
 
 The line that organizes the rest: **prompts are content, and schemas,
 permissions and binding are contract.** Content can move — into a file, a
@@ -112,7 +112,7 @@ here.
 
 |                                                                                                |                                                                       |
 | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| [Prompts and diagnostics](https://github.com/wileyc427/AgentInfer/blob/main/docs/authoring.md) | Prompt files, and the sixteen rules that check them, one section each |
+| [Prompts and diagnostics](https://github.com/wileyc427/AgentInfer/blob/main/docs/authoring.md) | Prompt files, and the seventeen rules that check them, one section each |
 | [Tools](https://github.com/wileyc427/AgentInfer/blob/main/docs/tools.md)                       | Compile-time schemas, optional arguments, enforced permissions        |
 | [Models and roles](https://github.com/wileyc427/AgentInfer/blob/main/docs/models.md)           | Binding a role to a model, composing clients, and credentials         |
 | [Composing agents](https://github.com/wileyc427/AgentInfer/blob/main/docs/composing.md)        | Chaining, routing, agent-as-tool, and when to write the class by hand |

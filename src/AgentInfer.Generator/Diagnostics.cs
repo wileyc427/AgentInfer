@@ -234,4 +234,28 @@ internal static class Diagnostics
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    /// <summary>
+    /// A declared context whose <c>[JsonSourceGenerationOptions]</c> disagrees
+    /// with the options the reflective path uses.
+    /// </summary>
+    /// <remarks>
+    /// The last silent divergence in the JSON path, and one that had happened:
+    /// every context in this repository declared four of the six, so a model
+    /// returning <c>"score": "4"</c> bound on the reflective path and threw on
+    /// the typed one. A comment saying the two must agree is not a check, and
+    /// the halves are written in different files by different people.
+    /// <para>
+    /// A warning rather than an error. The code compiles and runs — it binds
+    /// differently — and making it an error would break every consumer who
+    /// already declared a narrower context.
+    /// </para>
+    /// </remarks>
+    public static readonly DiagnosticDescriptor JsonContextOptionsDiverge = new(
+        id: "AIN017",
+        title: "JSON context disagrees with the binding options",
+        messageFormat: "'{0}' does not set {1}. AgentInfer's reflective path does, so the same reply binds differently depending on which overload a method takes.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
 }
