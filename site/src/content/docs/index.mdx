@@ -1,0 +1,85 @@
+---
+title: AgentInfer
+description: >-
+  Object-oriented agents for .NET, with tool schemas, permissions and reply
+  binding checked at build time.
+template: splash
+hero:
+  tagline: >-
+    An agent is an interface. A Roslyn generator writes the implementation at
+    build time — deriving each tool's JSON schema from its signature, binding
+    replies without reflection, and reporting seventeen classes of mistake as a
+    build error rather than a surprise in a trace.
+  actions:
+    - text: Prompts and diagnostics
+      link: /AgentInfer/reference/authoring/
+      icon: right-arrow
+    - text: On NuGet
+      link: https://www.nuget.org/packages/AgentInfer
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+:::caution[Experimental]
+The version is below 1.0 and means it. The API can still change, and it has not
+been run in anger by anyone but its author.
+:::
+
+## What the compiler checks
+
+Writing less code is not the argument — a model can write this, and increasingly
+does. The argument is what stops being true only at run time.
+
+<CardGrid>
+  <Card title="Schemas are derived, not written">
+    A tool's JSON schema comes from its method signature, so adding a parameter
+    moves the schema and the argument binding with it. A type with no schema is
+    a build error, not a shape the model sends once that nothing accepts.
+  </Card>
+  <Card title="Permissions gate the tool list">
+    Every tool states what a caller must hold, and the generated invoker offers
+    a model only the tools that caller can reach. "May this caller reach it" is
+    answered before anything runs.
+  </Card>
+  <Card title="Replies bind without reflection">
+    Through a `JsonTypeInfo` chosen at compile time, which is what lets the
+    typed path survive trimming and Native AOT. The trim and AOT analyzers are
+    on for everything that ships, so it is checked rather than claimed.
+  </Card>
+  <Card title="Seventeen rules, every build">
+    An empty prompt, a `[Flags]` enum in a schema position, a return type
+    nothing can bind, a tool result no serializer declares. Fourteen are
+    errors; three are warnings.
+  </Card>
+</CardGrid>
+
+## Prompts are content. Everything else is contract.
+
+Content can move — into a file, a separate repository, a package with its own
+release cadence. The contract is derived from the code it serves and never
+leaves the assembly.
+
+```csharp
+[Agent("""
+    You answer questions about a household ledger.
+    Use only figures you were given. Never invent an amount.
+    """)]
+public interface ILedgerAnalyst
+{
+    [Prompt("Summarize this spending against its budget in two sentences.")]
+    public Task<string> SummarizeAsync(string spending, CancellationToken ct = default);
+
+    [Prompt("Judge whether this summary is supported by the figures given.")]
+    public Task<Verdict> ReviewAsync(string summary, string figures, CancellationToken ct = default);
+}
+```
+
+That is the whole authoring surface. `LedgerAnalystAgent` is generated,
+implements the interface, and takes an `AgentRunner` — so mocking an agent in a
+test needs no framework support and no model.
+
+```bash
+dotnet add package AgentInfer
+```
