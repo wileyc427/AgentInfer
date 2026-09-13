@@ -44,7 +44,8 @@ public sealed class AgentScope : IDisposable
     private int _operations;
     private int _requests;
     private int _toolCalls;
-    private bool _closed;
+    // An int rather than a bool so Dispose can claim it atomically. See there.
+    private int _closed;
 
     private AgentScope(string name, AgentScope? parent, int maxRequests)
     {
@@ -134,8 +135,11 @@ public sealed class AgentScope : IDisposable
     /// </remarks>
     public void Dispose()
     {
-        if (_closed) return;
-        _closed = true;
+        // Claimed atomically rather than checked and then set. Dispose is public
+        // and IDisposable promises it is safe to call more than once; two
+        // threads racing the check would each record the workflow, doubling it
+        // in telemetry and disposing the Activity twice.
+        if (Interlocked.Exchange(ref _closed, 1) != 0) return;
 
         Ambient.Value = Parent;
 
