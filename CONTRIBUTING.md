@@ -61,11 +61,15 @@ landed — `Merge pull request #7 from wileyc427/claude/focused-hypatia-u8z8he`
 says nothing that a reader a year later can use. A branch named for its change
 produces a merge commit that reads as a sentence.
 
-CI runs for pull requests. A branch on its own does not build: a pull request
-is how a change reaches `main`, so it is also how a change gets tested, and
-listening for the branch push as well meant an open pull request built
-everything twice. `workflow_dispatch` takes a ref if a branch is worth building
-before there is anything to open.
+CI runs for pull requests that are ready for review. A branch on its own does
+not build: a pull request is how a change reaches `main`, so it is also how a
+change gets tested, and listening for the branch push as well meant an open
+pull request built everything twice.
+
+A **draft** does not build either — mark it ready and the run happens then. So
+a green check on a draft means nothing was compiled, which is only safe because
+a draft cannot be merged. `workflow_dispatch` takes a ref if a branch or a
+draft is worth building before then.
 
 Pushes to `main` and to a `v*` tag build too, as the publish path rather than
 an exception — `publish` is keyed on a push to `main` and `release` on the tag.

@@ -25,3 +25,4 @@ AIN013  | AgentInfer  | Error    | [AgentInferJson] target is not a JsonSerializ
 AIN014  | AgentInfer  | Error    | Return type is not declared in the JSON context
 AIN015  | AgentInfer  | Error    | Property carries bounds from both attribute families
 AIN016  | AgentInfer  | Error    | Tool result type cannot be rendered without a JSON context
+AIN017  | AgentInfer  | Warning  | JSON context disagrees with the binding options

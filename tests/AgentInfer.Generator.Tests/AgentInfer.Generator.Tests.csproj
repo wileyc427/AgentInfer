@@ -27,6 +27,20 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      DiagnosticDocumentationTests reads this. Copied beside the assembly rather
+      than found by walking up from the test's own source path: this repository
+      sets ContinuousIntegrationBuild on CI, which turns on deterministic source
+      paths, and [CallerFilePath] then reports /_/tests/... — a path that has no
+      repository above it. Declaring the dependency here is also the only form
+      the build can see.
+    -->
+    <Content Include="../../docs/authoring.md"
+             Link="docs/authoring.md"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit.v3" />
