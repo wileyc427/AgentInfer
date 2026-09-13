@@ -12,8 +12,21 @@
 name: build
 
 on:
+  # A pull request is the unit of work here, so it is what CI runs for. A branch
+  # on its own does not build — the ruleset requires a pull request to reach
+  # main anyway, and listening for the branch push as well ran the matrix twice
+  # on every push to an open one: eight jobs where four were asked for. The
+  # concurrency group cannot collapse that pair, because the two events carry
+  # different refs — refs/heads/<branch> against refs/pull/<n>/merge.
+  #
+  # main and v* are not an exception to that. They are the publish path:
+  # `publish` is keyed on a push to main and `release` on a tag, so dropping
+  # them would make a merge ship nothing and a tag inert.
+  #
+  # workflow_dispatch takes a ref, for a branch worth building before there is
+  # anything to open.
   push:
-    branches: ['**']
+    branches: [main]
     tags: ['v*']
   pull_request:
   workflow_dispatch:

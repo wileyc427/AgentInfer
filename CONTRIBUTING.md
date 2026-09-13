@@ -61,10 +61,19 @@ landed — `Merge pull request #7 from wileyc427/claude/focused-hypatia-u8z8he`
 says nothing that a reader a year later can use. A branch named for its change
 produces a merge commit that reads as a sentence.
 
-CI triggers on every branch, so the name has no effect on what runs. What the
-change touches does: a branch that only edits markdown, `docs/`, `.claude/`,
-the issue templates or `LICENSE` restores nothing, builds nothing and runs no
-tests, and finishes in under a minute. Everything else builds —
+CI runs for pull requests. A branch on its own does not build: a pull request
+is how a change reaches `main`, so it is also how a change gets tested, and
+listening for the branch push as well meant an open pull request built
+everything twice. `workflow_dispatch` takes a ref if a branch is worth building
+before there is anything to open.
+
+Pushes to `main` and to a `v*` tag build too, as the publish path rather than
+an exception — `publish` is keyed on a push to `main` and `release` on the tag.
+
+The branch name has no effect on what runs. What the change touches does: a
+branch that only edits markdown, `docs/`, `.claude/`, the issue templates or
+`LICENSE` restores nothing, builds nothing and runs no tests, and finishes in
+under a minute. Everything else builds —
 including `Directory.Build.props`, `Directory.Packages.props`, `global.json`,
 `.editorconfig` and the workflow itself, none of which live under `src/` but
 all of which change what a build does. `.github/build-needed.sh` decides, and
