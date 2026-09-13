@@ -6,12 +6,13 @@ anything to do with trimming.
 | | Needs a context |
 | --- | --- |
 | `Task<string>` reply | no — never JSON at all |
+| `IAsyncEnumerable<string>` reply | no — never JSON either |
 | `Task<Verdict>` or `Task<Severity>` reply | no — binds reflectively |
 | A tool returning a scalar, an enum, or an array of those | no |
 | A tool returning anything richer | **yes** — `AIN016`, a build error |
 | Publishing with `PublishTrimmed` or `PublishAot` | **yes** — or binding breaks |
 
-`samples/Ledger` is the fourth row, not the fifth. It declares a context
+`samples/Ledger` is the fifth row, not the sixth. It declares a context
 because `LedgerTools.Overview()` returns `IReadOnlyList<CategorySummary>`;
 nothing in this repository is trimmed. Read it as the exception rather than
 the rule.
