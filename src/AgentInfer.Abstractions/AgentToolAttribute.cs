@@ -15,7 +15,7 @@ namespace AgentInfer;
 /// when deciding whether to call this, so a vague one produces an agent that
 /// calls the wrong tool — a bug in the tool, filed against the tool.
 /// </para>
-/// <para>Reserved for P2. Present now so the vocabulary is stable.</para>
+/// <para>Reserved. Present now so the vocabulary is stable.</para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
 public sealed class AgentToolAttribute : Attribute

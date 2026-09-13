@@ -84,9 +84,8 @@ warning, since a key can arrive from somewhere the configuration cannot see.
 
 `ApiKeyVariable` names the environment variable holding the key. It is not the
 key, and there is no field that is. A committed file with a key-shaped field is
-a file somebody eventually puts a real key in — the same mistake as the
-working-looking IP address in the Python side's example env file, which sent
-every request to a machine that was not running anything.
+a file somebody eventually puts a real key in, and a plausible-looking value in
+a committed example is one somebody pastes a real one over.
 
 ## Role names without magic strings
 

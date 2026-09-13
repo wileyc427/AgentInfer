@@ -12,7 +12,7 @@ Rule ID | Category | Severity | Notes
 AIN001  | AgentInfer  | Error    | Agent requires a system prompt
 AIN002  | AgentInfer  | Error    | Generation method requires [Prompt]
 AIN003  | AgentInfer  | Error    | Unsupported return type; must be Task<T>
-AIN004  | AgentInfer  | Error    | CodeAct is not implemented (P3)
+AIN004  | AgentInfer  | Error    | Code execution is not implemented
 AIN005  | AgentInfer  | Error    | Unsupported tool parameter type
 AIN006  | AgentInfer  | Warning  | [AgentTool] requires [RequiresPermission]
 AIN007  | AgentInfer  | Error    | [Model] requires a non-empty role
