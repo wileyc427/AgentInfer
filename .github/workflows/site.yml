@@ -1,0 +1,96 @@
+# The documentation site.
+#
+# Separate from build.yml because it shares nothing with it: no SDK, no matrix,
+# no package. Its triggers are the deliberate complement of that workflow's —
+# what build-needed.sh calls inert is exactly what belongs here, and a change to
+# src/ rebuilds the library rather than the site.
+#
+# The pages under /reference/ are generated from docs/ at build time by
+# scripts/sync-docs.mjs, so the two cannot drift and docs/ stays the thing that
+# is read on GitHub.
+
+name: site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'site/**'
+      - '.github/workflows/site.yml'
+  # A pull request builds the site without deploying it, so a broken link or a
+  # page that will not render is caught before main carries it.
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'site/**'
+      - '.github/workflows/site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A superseded push is not worth a runner, and two deploys racing would publish
+# whichever finished last rather than whichever was newer.
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ASTRO_TELEMETRY_DISABLED: '1'
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      # ci rather than install: the lockfile decides, and a site that resolved a
+      # different Astro on the runner than on a laptop is a difference nobody
+      # can see in a diff.
+      - name: Install
+        working-directory: site
+        run: npm ci
+
+      - name: Build
+        working-directory: site
+        run: npm run build
+
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+        if: github.event_name != 'pull_request'
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        if: github.event_name != 'pull_request'
+        with:
+          path: site/dist
+
+  deploy:
+    name: deploy
+    # main only, and never from a fork: a fork's push must not be able to
+    # replace what this owner publishes.
+    if: github.event_name != 'pull_request' && !github.event.repository.fork
+    needs: build
+    runs-on: ubuntu-latest
+
+    # Narrower than the workflow default, and the only job that widens it.
+    # id-token is what lets the runner prove to Pages which workflow it is.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
+        id: deploy

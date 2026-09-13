@@ -46,6 +46,13 @@ inert() {
     *.md)                     return 0 ;;  # every doc, readme and skill file
     docs/*)                   return 0 ;;
     .claude/*)                return 0 ;;
+
+    # The documentation site and its workflow, which share nothing with the
+    # library. site.yml's own triggers are the complement of this list, so a
+    # path belongs to exactly one of the two builds.
+    site/*)                        return 0 ;;
+    .github/workflows/site.yml)    return 0 ;;
+
     .github/ISSUE_TEMPLATE/*) return 0 ;;
     LICENSE|.gitignore)       return 0 ;;
   esac
