@@ -22,7 +22,8 @@ namespace AgentInfer;
 /// </para>
 /// <para>
 /// There is no loop here. A Predict method is one request and one response; the
-/// loop belongs to CodeAct, which is P3, and hiding a latent loop in the Predict
+/// loop belongs to code execution, which is not implemented, and hiding a
+    /// latent loop in the Predict
 /// path would make the cheap strategy quietly expensive.
 /// </para>
 /// </remarks>

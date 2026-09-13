@@ -47,7 +47,7 @@ public sealed class LedgerTools
     [AgentTool("Move a transaction into a different category.")]
     [RequiresPermission("ledger.write")]
     public void Reclassify(string category, string newCategory) =>
-        throw new NotImplementedException("P2: the broker dispatches this, not the model directly.");
+        throw new NotImplementedException("Reserved: dispatched by the host, not by the model.");
 
     /// <summary>
     /// Everything, in one call. The coarse-grained alternative.

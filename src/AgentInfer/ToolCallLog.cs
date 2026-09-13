@@ -67,7 +67,8 @@ public sealed class ToolCallLog
 /// whatever the host already runs without anybody wiring an adapter.
 /// <para>
 /// <see cref="CallsPerTurn"/> is the histogram this whole file exists for. Its
-/// p95 is the P3 decision.
+/// p95 is what says whether a workload would benefit from letting a model
+    /// compose tool calls in code rather than one round trip at a time.
 /// </para>
 /// </remarks>
 public static class AgentMetrics
@@ -81,7 +82,7 @@ public static class AgentMetrics
     internal static Counter<long> ToolCalls { get; } =
         Meter.CreateCounter<long>("agentinfer.tool.calls", "{call}", "Tool invocations.");
 
-    /// <summary>Tool calls in one generation method call. The P3 decision.</summary>
+    /// <summary>Tool calls in one generation method call.</summary>
     internal static Histogram<int> CallsPerTurn { get; } =
         Meter.CreateHistogram<int>("agentinfer.tool.calls_per_turn", "{call}", "Tool calls per generation method call.");
 

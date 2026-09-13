@@ -56,14 +56,14 @@ Two deliberate limits:
 
 # The diagnostics are the product
 
-| Rule | Replaces |
+| Rule | Catches, at build, what would otherwise happen at run time |
 | --- | --- |
-| `AIN001` Agent requires a prompt | an f-string is not a docstring, so you silently inherit the framework's internal prompt |
+| `AIN001` Agent requires a prompt | an agent with nothing to say, sending whatever the runtime defaults to |
 | `AIN002` Method requires `[Prompt]` | an empty task prompt; the method behaves almost right |
-| `AIN003` Must return `Task<T>` | a return annotation the strategy cannot satisfy, discovered after paying for a call |
-| `AIN004` CodeAct is not implemented | an undecorated method silently executing generated code |
+| `AIN003` Must return `Task<T>` | a return type nothing can bind, discovered after paying for a call |
+| `AIN004` Code execution is not implemented | a method that looks like it will run generated code, and will not |
 | `AIN005` Unsupported tool parameter | a model sending a shape the parameter cannot take, learned from a trace |
-| `AIN006` Tool requires `[RequiresPermission]` | `@hidden`, which keeps a method out of the docs and leaves it callable |
+| `AIN006` Tool requires `[RequiresPermission]` | a tool reachable by a caller nobody decided should reach it |
 | `AIN007` `[Model]` requires a non-empty role | a role that silently resolves to nothing and routes to the default model |
 | `AIN008` Prompt file is not in `AdditionalFiles` | a prompt file the compiler cannot see, sitting visibly in the project |
 | `AIN009` Both a prompt and a `PromptFile` | two sources for one string, one of them stale, neither obviously the winner |
@@ -75,6 +75,7 @@ Two deliberate limits:
 | `AIN015` Property bounded twice | two values under one schema keyword, silently |
 | `AIN016` Tool result cannot be rendered | a reflective serializer, one line below the typed binding |
 
-Each row is a real failure from building against NOOA, moved from production to
-the build. The corollary is a rule this repo tries to hold: **a feature that
-cannot be diagnosed at compile time should be questioned before it is added.**
+Each row is a failure that was cheap to hit and expensive to notice, moved from
+run time to the build. The corollary is a rule this project tries to hold: **a
+feature that cannot be diagnosed at compile time should be questioned before it
+is added.**

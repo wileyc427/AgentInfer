@@ -41,8 +41,8 @@ and then the return value went back out through
 [Rendering a tool result](typed-replies.md#rendering-a-tool-result).
 
 Tools are opt-in one method at a time. A public method without `[AgentTool]` is
-**absent** from the manifest, not hidden from documentation while remaining
-callable — which is what NOOA's `@hidden` actually does.
+**absent** from the manifest — not merely undocumented while still reachable,
+which is the weaker guarantee and the easier one to get wrong.
 
 ## An argument the model may leave out
 
@@ -125,9 +125,9 @@ tools to the return type would be a rule nobody would guess. For a typed return
 the loop resolves the tool calls first and the final message is bound, exactly
 as on the plain path.
 
-`[Strategy(Strategies.Predict, MaxIterations = 8)]` bounds the loop. It is not
-only a CodeAct setting — a method that can call tools can trade turns with them,
-and that needs a bound wherever the turns come from.
+`[Strategy(Strategies.Predict, MaxIterations = 8)]` bounds the loop. Any method
+that can call tools can trade turns with them, and that needs a ceiling wherever
+the turns come from.
 
 Running the sample against a tool-calling stub:
 

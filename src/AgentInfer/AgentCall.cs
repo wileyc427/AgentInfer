@@ -54,7 +54,7 @@ public sealed class AgentException : Exception
 }
 
 /// <summary>
-/// Marker for the P1 JSON path, which still binds results reflectively.
+/// Marker for the reflective JSON path.
 /// </summary>
 /// <remarks>
 /// Flagged rather than quietly allowed. The library claims to work under AOT and
