@@ -32,23 +32,11 @@ dotnet add package AgentInfer
 One reference is the whole install: the generator ships inside the runtime
 package under `analyzers/dotnet/cs`. Targets **net8.0** and **net10.0**.
 
-| Package | What it is |
-| --- | --- |
-| `AgentInfer` | The runtime generated code calls into, with the generator inside it |
-| `AgentInfer.Abstractions` | The attributes. netstandard2.0, zero dependencies |
-| `AgentInfer.DependencyInjection` | Configuration binding and DI registration |
-
-## The two decisions worth knowing
-
-**Predict is the absence of an attribute.** `[Strategy(Strategies.CodeAct)]` is
-a line somebody typed, that a reviewer sees, and that `grep` finds. A framework
-that defaults to executing model-written code runs unreviewed code by default.
-Opting into code execution has to be visible.
-
-**Prompts are string constants, not doc comments.** C# strips XML docs into a
-separate file unreachable at run time. That reads like a handicap and is the
-opposite: a constant survives compilation and trimming, and cannot fall through
-to a base class's prompt the way a docstring silently can.
+| Package                          | What it is                                                          |
+| -------------------------------- | ------------------------------------------------------------------- |
+| `AgentInfer`                     | The runtime generated code calls into, with the generator inside it |
+| `AgentInfer.Abstractions`        | The attributes. netstandard2.0, zero dependencies                   |
+| `AgentInfer.DependencyInjection` | Configuration binding and DI registration                           |
 
 ## Where it is
 
@@ -68,15 +56,15 @@ here.
 
 ## Documentation
 
-| | |
-| --- | --- |
-| [Prompts and diagnostics](https://github.com/wileyc427/AgentInfer/blob/main/docs/authoring.md) | Prompt files, and the sixteen build errors that check them |
-| [Tools](https://github.com/wileyc427/AgentInfer/blob/main/docs/tools.md) | Compile-time schemas, optional arguments, enforced permissions |
-| [Models and roles](https://github.com/wileyc427/AgentInfer/blob/main/docs/models.md) | Binding a role to a model, and keeping credentials out of the file |
-| [Composing agents](https://github.com/wileyc427/AgentInfer/blob/main/docs/composing.md) | Chaining, routing, agent-as-tool, and when to write the class by hand |
-| [Typed replies](https://github.com/wileyc427/AgentInfer/blob/main/docs/typed-replies.md) | `IReplyContract`, JSON contexts, anticipated failures |
-| [Bounding and measuring](https://github.com/wileyc427/AgentInfer/blob/main/docs/measuring.md) | `AgentScope`, the instruments, and what a real model changed |
-| [Gotchas](https://github.com/wileyc427/AgentInfer/blob/main/docs/gotchas.md) | Four things that cost time here |
+|                                                                                                |                                                                       |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| [Prompts and diagnostics](https://github.com/wileyc427/AgentInfer/blob/main/docs/authoring.md) | Prompt files, and the sixteen build errors that check them            |
+| [Tools](https://github.com/wileyc427/AgentInfer/blob/main/docs/tools.md)                       | Compile-time schemas, optional arguments, enforced permissions        |
+| [Models and roles](https://github.com/wileyc427/AgentInfer/blob/main/docs/models.md)           | Binding a role to a model, and keeping credentials out of the file    |
+| [Composing agents](https://github.com/wileyc427/AgentInfer/blob/main/docs/composing.md)        | Chaining, routing, agent-as-tool, and when to write the class by hand |
+| [Typed replies](https://github.com/wileyc427/AgentInfer/blob/main/docs/typed-replies.md)       | `IReplyContract`, JSON contexts, anticipated failures                 |
+| [Bounding and measuring](https://github.com/wileyc427/AgentInfer/blob/main/docs/measuring.md)  | `AgentScope`, the instruments, and what a real model changed          |
+| [Gotchas](https://github.com/wileyc427/AgentInfer/blob/main/docs/gotchas.md)                   | Four things that cost time here                                       |
 
 ## Build
 
@@ -93,7 +81,7 @@ dotnet run --project samples/Ledger       # tools, permissions, model roles
 
 `samples/Incident` and `samples/Intake` run against a scripted `IChatClient`, so
 they work with nothing installed — the runtime takes an `IChatClient` and
-nothing else, which makes a workflow's *shape* testable without paying for a
+nothing else, which makes a workflow's _shape_ testable without paying for a
 token. It is not a substitute for a real run: every interesting failure
 described in the docs came from pointing this at a small local model, and a
 scripted one reproduces none of them. Pass `--live` for that, and `--metrics` to
