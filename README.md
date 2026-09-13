@@ -119,7 +119,7 @@ here.
 | [JSON contexts](https://github.com/wileyc427/AgentInfer/blob/main/docs/json-contexts.md)       | Whether you need one, what it is, and the two situations that ask     |
 | [Typed replies](https://github.com/wileyc427/AgentInfer/blob/main/docs/typed-replies.md)       | `IReplyContract`, JSON contexts, anticipated failures                 |
 | [Bounding and measuring](https://github.com/wileyc427/AgentInfer/blob/main/docs/measuring.md)  | `AgentScope`, the instruments, and what a real model changed          |
-| [Gotchas](https://github.com/wileyc427/AgentInfer/blob/main/docs/gotchas.md)                   | Four things that cost time here                                       |
+| [Gotchas](https://github.com/wileyc427/AgentInfer/blob/main/docs/gotchas.md)                   | Things that cost time here, including one that looks like your mistake |
 
 ## Build
 
