@@ -1,7 +1,10 @@
 # AgentInfer
 
-Object-oriented agents for .NET. An agent is an interface, its prompt is an
-attribute, and a Roslyn generator writes the implementation at build time.
+Object-oriented agents for .NET. An agent is an interface, and a Roslyn
+generator writes the implementation at build time — deriving each tool's JSON
+schema from its signature, binding replies without reflection, and reporting
+sixteen classes of mistake at build time rather than as a surprise in a
+trace.
 
 ```csharp
 [Agent("""
@@ -22,6 +25,33 @@ That is the whole authoring surface. `LedgerAnalystAgent` is generated,
 implements the interface, and takes an `AgentRunner`. Consumers inject
 `ILedgerAnalyst`, so mocking an agent in a test needs no framework support and
 no model.
+
+## What the compiler checks
+
+Writing less code is not the argument. A model can write this, and increasingly
+does. The argument is what stops being true only at run time:
+
+- **Tool schemas are derived, not written.** They come from the method
+  signature, so adding a parameter moves the schema and the argument binding
+  with it. A type that has no JSON schema is a build error, not a shape the
+  model sends once and nothing accepts.
+- **Permissions are enforced where the tools are built.** Every `[AgentTool]`
+  states what a caller must hold, and the generated invoker offers a model only
+  the tools that caller can reach — so "may this caller reach it" is answered
+  before anything runs.
+- **Replies bind through a `JsonTypeInfo` chosen at compile time**, which is
+  what lets the typed path survive trimming and Native AOT. The trim and AOT
+  analyzers are on for everything that ships, so that is checked rather than
+  claimed.
+- **Sixteen rules run on every build.** An empty prompt, a `[Flags]` enum in a
+  schema position, a return type nothing can bind, a tool result no serializer
+  declares — reported at build instead of by a paid call that comes back
+  wrong. Fourteen are errors; two are warnings.
+
+The line that organizes the rest: **prompts are content, and schemas,
+permissions and binding are contract.** Content can move — into a file, a
+separate repository, a package with its own release cadence. The contract is
+derived from the code it serves and never leaves the assembly.
 
 ## What this is
 
@@ -84,7 +114,7 @@ here.
 | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | [Prompts and diagnostics](https://github.com/wileyc427/AgentInfer/blob/main/docs/authoring.md) | Prompt files, and the sixteen rules that check them, one section each |
 | [Tools](https://github.com/wileyc427/AgentInfer/blob/main/docs/tools.md)                       | Compile-time schemas, optional arguments, enforced permissions        |
-| [Models and roles](https://github.com/wileyc427/AgentInfer/blob/main/docs/models.md)           | Binding a role to a model, and keeping credentials out of the file    |
+| [Models and roles](https://github.com/wileyc427/AgentInfer/blob/main/docs/models.md)           | Binding a role to a model, composing clients, and credentials         |
 | [Composing agents](https://github.com/wileyc427/AgentInfer/blob/main/docs/composing.md)        | Chaining, routing, agent-as-tool, and when to write the class by hand |
 | [Typed replies](https://github.com/wileyc427/AgentInfer/blob/main/docs/typed-replies.md)       | `IReplyContract`, JSON contexts, anticipated failures                 |
 | [Bounding and measuring](https://github.com/wileyc427/AgentInfer/blob/main/docs/measuring.md)  | `AgentScope`, the instruments, and what a real model changed          |
