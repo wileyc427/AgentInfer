@@ -105,6 +105,33 @@ The loop itself is `FunctionInvokingChatClient`'s, not ours. It is the
 platform's and it already handles parallel calls and per-call failures — writing
 a second one would be the same mistake as wrapping `IChatClient`.
 
+### Why this is a tool concept and not a method concept
+
+`[RequiresPermission]` goes on an `[AgentTool]` and nowhere else. The asymmetry
+is deliberate and worth stating, because it looks like an omission.
+
+A tool is called by the **model**. You are not at that call site and cannot put
+an `if` in front of it, so the gate has to live inside the machinery and has to
+run while the menu is being built — which is what makes "never told about it"
+possible at all.
+
+A generation method is called by **you**. `ILedgerAnalyst.SummarizeAsync` is an
+ordinary method on an ordinary interface, and authorization there is already
+solved by the things that integrate with claims, policies and challenge
+semantics: `[Authorize]` on the endpoint, a policy, a decorator, an `if`. An
+attribute here would be a worse version of all of them.
+
+It would also be a *convincing* worse version, which is the real objection. An
+agent is an interface that consumers are told to inject and mock. A check
+compiled into the generated implementation would sit at exactly the seam
+everyone is encouraged to replace — mock the interface and the check is gone.
+The tool gate cannot be sidestepped that way, because whatever agent runs, the
+menu the model sees still comes from the invoker.
+
+If what you want gated is cost rather than access — a method that reaches for
+the accurate model and runs a tool loop — that is
+[`AgentScope`](measuring.md) with a bound, not a permission.
+
 ## An agent with tools uses them
 
 ```csharp

@@ -1,5 +1,14 @@
 # Gotchas
 
+**A `JsonSerializerContext` must be declared in exactly one file.** Splitting
+the `partial` across two — tool results beside the tools, reply types beside the
+agents — looks reasonable and does not work: `System.Text.Json`'s generator
+emits nothing, and the error is `CS0534: does not implement inherited abstract
+member 'JsonSerializerContext.GetTypeInfo(Type)'` pointing at your own class.
+That reads like a mistake in the declaration rather than a limitation of the
+generator, and repeating the base type on both parts does not help. One file,
+every `[JsonSerializable]` on it.
+
 **Analyzers do not flow transitively through `ProjectReference`.** `AgentInfer`
 references the generator as an `Analyzer`, but a project referencing `AgentInfer`
 gets the runtime and no generator. It works through a NuGet package; inside
