@@ -129,7 +129,18 @@ public sealed class Workflows(
         var evidence = string.Join("\n", findings.Select(f =>
             $"{f.Service}: {(f.Healthy ? "healthy" : "unhealthy")} — {f.Evidence}"));
 
-        var draft = await postmortem.DraftAsync(alert, evidence, ct);
+        // Streamed rather than awaited whole, so the sample exercises the path
+        // a web app would use. The scope counts this as one request, the same as
+        // the buffered call it replaces — CountingChatClient wraps both.
+        var written = new System.Text.StringBuilder();
+
+        await foreach (var piece in postmortem.StreamDraftAsync(alert, evidence, ct))
+        {
+            written.Append(piece);
+        }
+
+        var draft = written.ToString();
+        Console.WriteLine($"  drafted {draft.Length} characters, streamed");
 
         for (var attempt = 1; attempt <= attempts; attempt++)
         {

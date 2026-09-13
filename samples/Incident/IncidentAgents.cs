@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using AgentInfer;
 
 namespace Incident;
@@ -160,6 +161,20 @@ public interface IPostmortem
 
     [Prompt("Is every claim in this draft supported by these findings?")]
     public Task<Review> ReviewAsync(string draft, string findings, CancellationToken ct = default);
+
+    /// <summary>The draft again, handed back as the model writes it.</summary>
+    /// <remarks>
+    /// <c>IAsyncEnumerable&lt;string&gt;</c> rather than <c>Task&lt;string&gt;</c>,
+    /// which is the whole declaration — the generated method forwards to the
+    /// runner's streaming path and nothing else changes. There is no streaming
+    /// counterpart for <see cref="ReviewAsync"/> and will not be: a
+    /// <see cref="Review"/> is validated as a whole, so there is no partial one
+    /// worth handing anyone.
+    /// </remarks>
+    [Prompt("Draft a postmortem for this incident from these findings.")]
+    [Model(ModelRoles.Accurate)]
+    public IAsyncEnumerable<string> StreamDraftAsync(
+        string alert, string findings, CancellationToken ct = default);
 }
 
 /// <summary>

@@ -904,6 +904,18 @@ public sealed class AgentGenerator : IIncrementalGenerator
         type = "string";
 
         if (returnType is not INamedTypeSymbol { IsGenericType: true } named) return false;
+
+        // Streaming is its own shape rather than a flag on Text, because
+        // everything downstream keys on the shape: no schema, no contract, no
+        // bounds, and a different method on the runner.
+        if (named.ConstructedFrom.ToDisplayString() == "System.Collections.Generic.IAsyncEnumerable<T>")
+        {
+            if (named.TypeArguments[0].SpecialType != SpecialType.System_String) return false;
+
+            shape = ReturnShape.Stream;
+            return true;
+        }
+
         if (named.ConstructedFrom.ToDisplayString() != "System.Threading.Tasks.Task<TResult>") return false;
 
         var argument = named.TypeArguments[0];

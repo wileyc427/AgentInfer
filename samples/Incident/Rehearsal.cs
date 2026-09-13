@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 using Microsoft.Extensions.AI;
 
 namespace Incident;
@@ -177,11 +179,30 @@ internal sealed class Rehearsal : IChatClient
             pair => (object?)pair.Value?.GetValue<System.Text.Json.JsonElement>());
     }
 
-    public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+    /// <summary>The same scripted reply, in pieces.</summary>
+    /// <remarks>
+    /// Chunked rather than yielded whole, because a rehearsal that streams one
+    /// update would run green against an implementation that does not stream at
+    /// all — which is the only thing this path is here to prove.
+    /// </remarks>
+    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
-        CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException("The sample does not stream.");
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var all = messages as IList<ChatMessage> ?? [.. messages];
+        var user = all.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? string.Empty;
+        var toolsRan = all.Any(m => m.Contents.Any(c => c is FunctionResultContent));
+
+        var text = Reply(user, toolsRan).Text ?? string.Empty;
+
+        foreach (var word in text.Split(' '))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return new ChatResponseUpdate(ChatRole.Assistant, word + " ");
+            await Task.Yield();
+        }
+    }
 
     public object? GetService(Type serviceType, object? serviceKey = null) => null;
 

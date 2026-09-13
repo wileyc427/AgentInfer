@@ -28,11 +28,32 @@ internal sealed class FakeChatClient(string reply) : IChatClient
         return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, reply)));
     }
 
-    public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+    /// <summary>The same reply, in pieces.</summary>
+    /// <remarks>
+    /// Chunked rather than handed over whole, because a fake that yields one
+    /// update would pass a streaming test that a non-streaming implementation
+    /// also passes. Four characters at a time is arbitrary and small enough
+    /// that every reply used here produces several.
+    /// </remarks>
+    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
-        CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException("Streaming is not implemented.");
+        [System.Runtime.CompilerServices.EnumeratorCancellation]
+        CancellationToken cancellationToken = default)
+    {
+        Received = [.. messages];
+        LastOptions = options;
+
+        for (var at = 0; at < reply.Length; at += 4)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var piece = reply.Substring(at, Math.Min(4, reply.Length - at));
+            yield return new ChatResponseUpdate(ChatRole.Assistant, piece);
+
+            await Task.Yield();
+        }
+    }
 
     public object? GetService(Type serviceType, object? serviceKey = null) => null;
 

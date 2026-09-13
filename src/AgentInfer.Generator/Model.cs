@@ -100,6 +100,16 @@ internal enum ReturnShape
 
     /// <summary><c>Task&lt;T&gt;</c> — bind the reply as JSON.</summary>
     Json,
+
+    /// <summary>
+    /// <c>IAsyncEnumerable&lt;string&gt;</c> — hand the text back as it arrives.
+    /// </summary>
+    /// <remarks>
+    /// Text only. A typed reply is validated as a whole, so there is no
+    /// half-bound value to yield, and a method returning a type keeps returning
+    /// <c>Task&lt;T&gt;</c>.
+    /// </remarks>
+    Stream,
 }
 
 /// <summary>

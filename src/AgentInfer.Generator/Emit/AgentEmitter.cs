@@ -217,12 +217,22 @@ internal static class AgentEmitter
     {
         var ct = method.CancellationTokenParameter ?? "default";
 
+        var streams = method.Shape == ReturnShape.Stream;
+
         code.AppendLine();
         code.AppendLine("    /// <inheritdoc/>");
+
+        // Not `async` when streaming: the method hands back the runner's own
+        // enumerable rather than iterating it. That keeps this an ordinary
+        // method instead of an iterator, so the token needs no
+        // [EnumeratorCancellation] and there is no second enumerator to dispose.
+        //
         // Types arrive already fully qualified from the model. Nothing here
         // prepends "global::" — see the note in AgentGenerator.ReadMethod.
-        code.Append("    public async global::System.Threading.Tasks.Task<")
-            .Append(method.ReturnType).Append("> ").Append(method.Name).Append('(');
+        code.Append(streams
+                ? "    public global::System.Collections.Generic.IAsyncEnumerable<string> "
+                : "    public async global::System.Threading.Tasks.Task<" + method.ReturnType + "> ")
+            .Append(method.Name).Append('(');
 
         var first = true;
         foreach (var parameter in method.Parameters)
@@ -288,7 +298,13 @@ internal static class AgentEmitter
             ? $"_router.For({ToolEmit.Literal(role)})"
             : "_runner";
 
-        if (method.Shape == ReturnShape.Text)
+        if (streams)
+        {
+            var name = hasTools ? "StreamWithToolsAsync" : "StreamTextAsync";
+            code.Append("        return ").Append(runner).Append('.').Append(name).Append("(call")
+                .Append(tools).Append(", ").Append(ct).AppendLine(");");
+        }
+        else if (method.Shape == ReturnShape.Text)
         {
             var name = hasTools ? "CompleteWithToolsAsync" : "CompleteTextAsync";
             code.Append("        return await ").Append(runner).Append('.').Append(name).Append("(call")
