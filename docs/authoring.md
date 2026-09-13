@@ -292,26 +292,12 @@ signature; tools are a menu that grows, and a silent fallback is exactly how
 the parameter schemas would have rotted if they had not been compile-time from
 the start.
 
-Return a simpler shape, or declare a context. The whole shape, including the
-options — a context that sets fewer of them binds the same reply differently
-from the reflective path, and nothing checks that it agrees:
+Return a simpler shape, or declare a JSON context. A tool result richer than a
+scalar, an enum or an array of those has no overload to render it, and the tool
+path has no reflective fallback on purpose.
 
-```csharp
-[JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    PropertyNameCaseInsensitive = true,
-    NumberHandling = JsonNumberHandling.AllowReadingFromString,
-    UseStringEnumConverter = true,
-    RespectNullableAnnotations = true,
-    RespectRequiredConstructorParameters = true)]
-[JsonSerializable(typeof(IReadOnlyList<CategorySummary>))]
-internal partial class LedgerJson : JsonSerializerContext;
-
-[assembly: AgentInferJson(typeof(LedgerJson))]
-```
-
-Those six lines cannot be emitted for you; [Typed replies](typed-replies.md)
-explains why, and what the context buys beyond this error.
+[JSON contexts](json-contexts.md) has the declaration to paste, the options it
+must carry, and why the six lines cannot be emitted for you.
 
 ### AIN017
 

@@ -116,6 +116,7 @@ here.
 | [Tools](https://github.com/wileyc427/AgentInfer/blob/main/docs/tools.md)                       | Compile-time schemas, optional arguments, enforced permissions        |
 | [Models and roles](https://github.com/wileyc427/AgentInfer/blob/main/docs/models.md)           | Binding a role to a model, composing clients, and credentials         |
 | [Composing agents](https://github.com/wileyc427/AgentInfer/blob/main/docs/composing.md)        | Chaining, routing, agent-as-tool, and when to write the class by hand |
+| [JSON contexts](https://github.com/wileyc427/AgentInfer/blob/main/docs/json-contexts.md)       | Whether you need one, what it is, and the two situations that ask     |
 | [Typed replies](https://github.com/wileyc427/AgentInfer/blob/main/docs/typed-replies.md)       | `IReplyContract`, JSON contexts, anticipated failures                 |
 | [Bounding and measuring](https://github.com/wileyc427/AgentInfer/blob/main/docs/measuring.md)  | `AgentScope`, the instruments, and what a real model changed          |
 | [Gotchas](https://github.com/wileyc427/AgentInfer/blob/main/docs/gotchas.md)                   | Four things that cost time here                                       |

@@ -1,5 +1,9 @@
 # Typed replies
 
+> New to this? [JSON contexts](json-contexts.md) answers *do I need one, and
+> why* in plain terms. This page assumes the answer is yes and covers what the
+> typed path then does.
+
 Three things have to agree about a typed reply: **the schema the model is told,
 the metadata the reply is bound with, and the rule its values must satisfy.**
 They used to live in three places — a string on `AgentCall`, a
@@ -45,26 +49,15 @@ reports success, on precisely the value a model is most likely to get wrong.
 
 ## You declare the context; the generator points at it
 
-```csharp
-[JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    PropertyNameCaseInsensitive = true,
-    NumberHandling = JsonNumberHandling.AllowReadingFromString,
-    UseStringEnumConverter = true,
-    RespectNullableAnnotations = true,
-    RespectRequiredConstructorParameters = true)]
-[JsonSerializable(typeof(Verdict))]
-internal partial class LedgerJson : JsonSerializerContext;
+[JSON contexts](json-contexts.md) covers what a context is, the two situations
+that call for one, and the six lines you write. This section is the half that
+explains why those six lines exist rather than being emitted for you.
 
-[assembly: AgentInferJson(typeof(LedgerJson))]
-```
-
-Six lines, and they cannot be emitted for you. **Roslyn generators do not
-chain**: a `JsonSerializerContext` written by this generator is invisible to
-`System.Text.Json`'s and compiles to an abstract class with no metadata in it —
-the error is *"does not implement inherited abstract member GetTypeInfo(Type)"*.
-Their *outputs* can reference each other, because both land in the same
-compilation. Only their inputs cannot.
+**Roslyn generators do not chain**: a `JsonSerializerContext` written by this
+generator is invisible to `System.Text.Json`'s and compiles to an abstract
+class with no metadata in it — the error is *"does not implement inherited
+abstract member GetTypeInfo(Type)"*. Their *outputs* can reference each other,
+because both land in the same compilation. Only their inputs cannot.
 
 Without the attribute the reflective path stays, annotated and honest.
 `samples/Incident` deliberately declares no context, because opt-in is only
