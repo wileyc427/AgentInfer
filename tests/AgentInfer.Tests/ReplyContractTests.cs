@@ -9,6 +9,8 @@ public sealed record Score(int Value, string Reason);
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    PropertyNameCaseInsensitive = true,
+    NumberHandling = JsonNumberHandling.AllowReadingFromString,
     UseStringEnumConverter = true,
     RespectNullableAnnotations = true,
     RespectRequiredConstructorParameters = true)]

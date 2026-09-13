@@ -80,6 +80,59 @@ endpoint, and — with several providers — a role that names none while
 `DefaultProvider` is unset. A provider whose `ApiKeyVariable` is unset is a
 warning, since a key can arrive from somewhere the configuration cannot see.
 
+## A role binds to an `IChatClient`, and clients compose
+
+The factory returns an `IChatClient`. Nothing requires that to be a bare
+provider client, and the runner never unwraps it — `CountingChatClient` wraps
+whatever it is given and deliberately does not dispose it, because a runner is
+handed a client and does not own one.
+
+So a role can resolve to a composed pipeline. `Microsoft.Extensions.AI` ships
+the decorators, and as of 10.10.0 they include `OrderedFailoverChatClient`,
+`DistributedCachingChatClient`, `SemanticRoutingChatClient`,
+`ConfigureOptionsChatClient` and the OpenTelemetry wrapper. Construct them
+directly; there is no `UseFailover()` builder extension for these yet.
+
+```csharp
+services.AddAgentInferModels(configuration, (binding, sp) =>
+    binding.Role is "accurate"
+        ? new OrderedFailoverChatClient([ClientFor(binding), LocalFallback(sp)])
+        : ClientFor(binding));
+```
+
+`accurate` now falls back to a local model when the hosted one is unreachable,
+and it is still the role the compiler checked: `AIN007` still requires the name,
+`AgentInferRoles.All` still validates the set at startup, and a typo is still
+the registration error that lists what exists.
+
+That division is the whole relationship with `Microsoft.Extensions.AI`.
+**AgentInfer names and checks the role; `Microsoft.Extensions.AI` decides what
+the name resolves to.** A router in the library would be a second provider stack
+on the maintenance bill, and worse than the platform's.
+
+### What the budget does and does not see
+
+Composition happens below the counter. The pipeline a call runs through is:
+
+```
+FunctionInvokingChatClient     built per call, so every tool round is counted
+  └─ CountingChatClient        AgentRunner's own wrapper; records the request
+       └─ your client          anything composed here is BELOW the counter
+```
+
+That placement is what lets `AgentScope` see each round of a tool-calling
+method. The cost is that decorators you add are invisible to it, in both
+directions:
+
+- **Failover** — a retry against the second client is a request the bound never
+  sees. `AgentScope.Begin("x", maxRequests: 20)` can mean forty provider calls.
+- **Caching** — a cache hit still records a request, though nothing left the
+  process.
+
+`AgentScope` counts the requests the agent *made*, not the traffic that
+reached a provider. For a budget that is about cost rather than about an agent
+looping, put the accounting in the pipeline you built, where the retries are.
+
 ## The credential is never in the file
 
 `ApiKeyVariable` names the environment variable holding the key. It is not the

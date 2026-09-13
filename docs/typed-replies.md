@@ -48,6 +48,8 @@ reports success, on precisely the value a model is most likely to get wrong.
 ```csharp
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    PropertyNameCaseInsensitive = true,
+    NumberHandling = JsonNumberHandling.AllowReadingFromString,
     UseStringEnumConverter = true,
     RespectNullableAnnotations = true,
     RespectRequiredConstructorParameters = true)]
