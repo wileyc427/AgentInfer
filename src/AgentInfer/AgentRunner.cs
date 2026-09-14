@@ -53,13 +53,14 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     public async Task<string> CompleteTextAsync(AgentCall call, CancellationToken ct = default)
     {
         using var activity = Source.StartActivity(call.Operation);
+        using var usage = UsageAccumulator.Begin();
         var started = Stopwatch.GetTimestamp();
 
         var response = await _client.GetResponseAsync(Build(call, json: false), cancellationToken: ct)
             .ConfigureAwait(false);
 
         var text = response.Text ?? string.Empty;
-        Log(call, started, text.Length);
+        Log(call, started, text.Length, usage);
         return text;
     }
 
@@ -88,6 +89,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         using var activity = Source.StartActivity(call.Operation);
+        using var usage = UsageAccumulator.Begin();
         var started = Stopwatch.GetTimestamp();
         var length = 0;
 
@@ -103,7 +105,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
             yield return text;
         }
 
-        Log(call, started, length);
+        Log(call, started, length, usage);
     }
 
     /// <summary>The same, for a method that may call tools first.</summary>
@@ -132,6 +134,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         ArgumentNullException.ThrowIfNull(authorizer);
 
         using var activity = Source.StartActivity(call.Operation);
+        using var usage = UsageAccumulator.Begin();
         var started = Stopwatch.GetTimestamp();
         var length = 0;
 
@@ -161,7 +164,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         }
 
         Record(call, log);
-        Log(call, started, length, log.Invocations);
+        Log(call, started, length, usage, log.Invocations);
     }
 
     /// <summary>Runs a method whose return type is bound from JSON.</summary>
@@ -178,13 +181,14 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         CancellationToken ct = default)
     {
         using var activity = Source.StartActivity(call.Operation);
+        using var usage = UsageAccumulator.Begin();
         var started = Stopwatch.GetTimestamp();
 
         var response = await _client.GetResponseAsync(Build(call, json: true), FormatFor(call), ct)
             .ConfigureAwait(false);
 
         var text = response.Text ?? string.Empty;
-        Log(call, started, text.Length);
+        Log(call, started, text.Length, usage);
 
         return Bind<T>(call, text, options);
     }
@@ -228,6 +232,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         RefuseDoubleSchema(call);
 
         using var activity = Source.StartActivity(call.Operation);
+        using var usage = UsageAccumulator.Begin();
         var started = Stopwatch.GetTimestamp();
 
         var described = call with { ResponseSchema = contract.Schema };
@@ -236,7 +241,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
             .ConfigureAwait(false);
 
         var text = response.Text ?? string.Empty;
-        Log(described, started, text.Length);
+        Log(described, started, text.Length, usage);
 
         return Bind(described, text, contract);
     }
@@ -260,6 +265,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         RefuseDoubleSchema(call);
 
         using var activity = Source.StartActivity(call.Operation);
+        using var usage = UsageAccumulator.Begin();
         var started = Stopwatch.GetTimestamp();
 
         var described = call with { ResponseSchema = contract.Schema };
@@ -268,7 +274,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
             .ConfigureAwait(false);
 
         var text = response.Text ?? string.Empty;
-        Log(described, started, text.Length);
+        Log(described, started, text.Length, usage);
 
         return TryBind(described, text, contract, out _);
     }
@@ -377,9 +383,10 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         ArgumentOutOfRangeException.ThrowIfLessThan(maxIterations, 1);
 
         using var activity = Source.StartActivity(call.Operation);
+        using var usage = UsageAccumulator.Begin();
         var started = Stopwatch.GetTimestamp();
 
-        return await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, started, ct)
+        return await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, started, usage, ct)
             .ConfigureAwait(false);
     }
 
@@ -410,6 +417,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         ArgumentOutOfRangeException.ThrowIfLessThan(maxIterations, 1);
 
         using var activity = Source.StartActivity(call.Operation);
+        using var usage = UsageAccumulator.Begin();
         var started = Stopwatch.GetTimestamp();
 
         // Two phases, and the second one is not optional.
@@ -425,7 +433,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         // normally, then bind in a second call with no tools and nothing to be
         // confused by. One extra round trip, and the failure mode goes away
         // rather than being tuned around.
-        var text = await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, started, ct)
+        var text = await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, started, usage, ct)
             .ConfigureAwait(false);
 
         // The arguments come along, and dropping them was a bug. The binding
@@ -472,11 +480,12 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         ArgumentOutOfRangeException.ThrowIfLessThan(maxIterations, 1);
 
         using var activity = Source.StartActivity(call.Operation);
+        using var usage = UsageAccumulator.Begin();
         var started = Stopwatch.GetTimestamp();
 
         var described = call with { ResponseSchema = contract.Schema };
 
-        var text = await RunWithToolsAsync(described, invoker, authorizer, maxIterations, json: false, started, ct)
+        var text = await RunWithToolsAsync(described, invoker, authorizer, maxIterations, json: false, started, usage, ct)
             .ConfigureAwait(false);
 
         var binding = described with
@@ -507,11 +516,12 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         RefuseDoubleSchema(call);
 
         using var activity = Source.StartActivity(call.Operation);
+        using var usage = UsageAccumulator.Begin();
         var started = Stopwatch.GetTimestamp();
 
         var described = call with { ResponseSchema = contract.Schema };
 
-        var text = await RunWithToolsAsync(described, invoker, authorizer, maxIterations, json: false, started, ct)
+        var text = await RunWithToolsAsync(described, invoker, authorizer, maxIterations, json: false, started, usage, ct)
             .ConfigureAwait(false);
 
         var binding = described with
@@ -549,6 +559,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         int maxIterations,
         bool json,
         long started,
+        UsageAccumulator usage,
         CancellationToken ct)
     {
         var available = invoker.AvailableTo(authorizer);
@@ -577,7 +588,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         // public method the caller entered through, and threading it down would
         // be plumbing to reach something already ambient.
         Record(call, log);
-        Log(call, started, text.Length, log.Invocations);
+        Log(call, started, text.Length, usage, log.Invocations);
         return text;
     }
 
@@ -799,14 +810,49 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
     /// path, which is one operation and two requests. That difference is the
     /// point of counting both.
     /// </remarks>
-    private void Log(AgentCall call, long started, int length, int toolCalls = 0)
+    /// <summary>Records what one generation method call did and what it cost.</summary>
+    /// <remarks>
+    /// The accumulator is a required parameter, and taken here rather than read
+    /// from <see cref="UsageAccumulator.Current"/>, so that a path which forgot
+    /// to open one does not compile. An ambient read would instead bill those
+    /// tokens to whatever accumulator happened to be above it, silently — the
+    /// same failure <see cref="CountingChatClient"/> exists to avoid one layer
+    /// down.
+    /// </remarks>
+    private void Log(AgentCall call, long started, int length, UsageAccumulator usage, int toolCalls = 0)
     {
         AgentScope.RecordOperation(toolCalls);
 
+        var elapsed = Stopwatch.GetElapsedTime(started).TotalSeconds;
+
+        if (!usage.Reported)
+        {
+            // No instruments either. A provider that reports nothing would
+            // otherwise contribute a zero to every token histogram, and a p95 of
+            // zero reads as a cheap workload rather than an unmeasured one.
+            _logger.LogInformation(
+                "{Operation} completed in {Elapsed:F1}s, {Length} chars",
+                call.Operation,
+                elapsed,
+                length);
+
+            return;
+        }
+
+        var tokens = usage.Snapshot();
+        var operation = new KeyValuePair<string, object?>("operation", call.Operation);
+
+        AgentMetrics.InputTokens.Record(tokens.Input, operation);
+        AgentMetrics.OutputTokens.Record(tokens.Output, operation);
+        AgentMetrics.ReasoningTokens.Record(tokens.Reasoning, operation);
+        AgentMetrics.CachedInputTokens.Record(tokens.CachedInput, operation);
+
         _logger.LogInformation(
-            "{Operation} completed in {Elapsed:F1}s, {Length} chars",
+            "{Operation} completed in {Elapsed:F1}s, {Length} chars, {InputTokens} in / {OutputTokens} out token(s)",
             call.Operation,
-            Stopwatch.GetElapsedTime(started).TotalSeconds,
-            length);
+            elapsed,
+            length,
+            tokens.Input,
+            tokens.Output);
     }
 }

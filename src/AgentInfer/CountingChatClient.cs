@@ -1,10 +1,12 @@
+using System.Runtime.CompilerServices;
+
 using Microsoft.Extensions.AI;
 
 namespace AgentInfer;
 
 /// <summary>
-/// Counts every request against the enclosing <see cref="AgentScope"/>, and
-/// refuses the one that would exceed its bound.
+/// Counts every request against the enclosing <see cref="AgentScope"/>, refuses
+/// the one that would exceed its bound, and collects what each one spent.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -35,22 +37,86 @@ namespace AgentInfer;
 /// </remarks>
 internal sealed class CountingChatClient(IChatClient inner) : DelegatingChatClient(inner)
 {
-    public override Task<ChatResponse> GetResponseAsync(
+    public override async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         AgentScope.RecordRequest();
-        return base.GetResponseAsync(messages, options, cancellationToken);
+
+        var response = await base.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
+
+        Record(response.Usage, AgentScope.Current, UsageAccumulator.Current);
+        return response;
     }
 
+    /// <summary>
+    /// Not an async iterator, so the budget check stays eager.
+    /// </summary>
+    /// <remarks>
+    /// An <c>async IAsyncEnumerable</c> body does not run until somebody calls
+    /// <c>MoveNextAsync</c>, which would move
+    /// <see cref="AgentScope.RecordRequest"/> from "when the call was made" to
+    /// "when the caller got round to reading it". Nothing is sent before then
+    /// either, so the bound would still hold — but a budget that throws from a
+    /// <c>foreach</c> rather than from the call it refuses is a worse thing to
+    /// read in a stack trace.
+    /// </remarks>
     public override IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         AgentScope.RecordRequest();
-        return base.GetStreamingResponseAsync(messages, options, cancellationToken);
+
+        // Both are AsyncLocal, and usage arrives during enumeration rather than
+        // here. Captured now so an enumerable read from another execution
+        // context bills the scope that asked for it, not whichever one happened
+        // to be current when the tokens showed up.
+        return Observe(
+            base.GetStreamingResponseAsync(messages, options, cancellationToken),
+            AgentScope.Current,
+            UsageAccumulator.Current,
+            cancellationToken);
+    }
+
+    /// <summary>Passes updates through, keeping the usage ones as they go by.</summary>
+    /// <remarks>
+    /// A streaming response reports usage as a <see cref="UsageContent"/> in an
+    /// update's contents, generally the last one, and generally only when the
+    /// provider was asked for it.
+    /// </remarks>
+    private static async IAsyncEnumerable<ChatResponseUpdate> Observe(
+        IAsyncEnumerable<ChatResponseUpdate> updates,
+        AgentScope? scope,
+        UsageAccumulator? accumulator,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        await foreach (var update in updates.WithCancellation(ct).ConfigureAwait(false))
+        {
+            foreach (var content in update.Contents)
+            {
+                if (content is UsageContent usage) Record(usage.Details, scope, accumulator);
+            }
+
+            yield return update;
+        }
+    }
+
+    /// <summary>
+    /// Bills one request's usage to the workflow and to the method call.
+    /// </summary>
+    /// <remarks>
+    /// Both, because they answer different questions and neither derives the
+    /// other: the scope wants what a composition cost end to end, and the
+    /// accumulator wants which method spent it.
+    /// </remarks>
+    private static void Record(UsageDetails? usage, AgentScope? scope, UsageAccumulator? accumulator)
+    {
+        if (usage is null) return;
+
+        scope?.AddUsage(usage);
+        accumulator?.Add(usage);
     }
 
     /// <summary>Disposes nothing. The client belongs to whoever built it.</summary>

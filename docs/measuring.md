@@ -7,7 +7,7 @@ var severity = await triage.SeverityAsync(alert);
 var findings = await Task.WhenAll(services.Select(s => investigator.InvestigateAsync(s)));
 
 logger.LogInformation("{Scope}", scope);
-// incident.triage: 6 operation(s), 14 request(s), 4 tool call(s) in 0.2s
+// incident.triage: 6 operation(s), 14 request(s), 4 tool call(s), 18432 in / 2106 out token(s) in 0.2s
 ```
 
 `MaxIterations` bounds one method's tool loop. Nothing bounded the composition,
@@ -33,6 +33,8 @@ were right there.
 | `agentinfer.workflow.operations` | histogram — generation method calls per scope |
 | `agentinfer.workflow.requests` | histogram — requests actually sent |
 | `agentinfer.workflow.duration` | histogram — seconds |
+| `agentinfer.workflow.tokens.input` | histogram — prompt tokens per scope |
+| `agentinfer.workflow.tokens.output` | histogram — generated tokens per scope |
 
 Scopes nest and counts roll up, so an orchestration cannot look cheap by hiding
 its work one level down. Per-call spans nest under the scope's span, under the
@@ -64,6 +66,63 @@ flows. Opened without a bound, a scope changes nothing at all.
 > per role, the second call through that role fails. Ownership now stops at the
 > decorator: a runner is handed a client, it does not create one, and it must
 > not close one.
+
+## Requests are not what you are billed for
+
+A bound in requests treats them as interchangeable, and they are not. The first
+thing anyone builds with tools is a step whose prompt grows by a tool result
+every round, so the fourth request in a loop can cost several times the first.
+`scope.Requests` says 14 either way.
+
+Every request's usage is therefore collected as well, at the same place and for
+the same reason — inside the tool loop, where each round's own numbers are
+visible. Reading the loop's *final* response instead would double count, because
+that response reports the rounds' sum.
+
+```csharp
+using var scope = AgentScope.Begin("incident.triage");
+...
+scope.Tokens          // TokenCounts(Input, Output, Total, Reasoning, CachedInput)
+scope.UsageReported   // whether any provider actually said
+```
+
+and per method call, tagged by operation:
+
+| Instrument | |
+| --- | --- |
+| `agentinfer.tokens.input` | histogram — prompt tokens per generation method call |
+| `agentinfer.tokens.output` | histogram — generated tokens |
+| `agentinfer.tokens.reasoning` | histogram — output tokens spent thinking |
+| `agentinfer.tokens.cached_input` | histogram — input tokens served from a provider cache |
+
+Tagged **by operation**, because the actionable form of "this got expensive" is
+which method. A single process-wide number says the bill went up and leaves the
+reader to guess where.
+
+**`reasoning` is separate because it is the one that explains a latency nobody
+can account for.** A `qwen3:latest` run of the ledger sample took 41 seconds to
+return 105 characters. Nothing in a duration histogram distinguishes that from a
+slow network; the reasoning count says the model was writing the whole time,
+somewhere the reply does not show. Folded into `output`, that is invisible.
+
+**`cached_input` is separate because every provider that offers it bills it at a
+fraction.** It is already included in `input`, so a cost estimate that does not
+subtract it is wrong in the expensive direction.
+
+**Nothing reported is not the same as nothing spent.** Plenty of providers say
+nothing — a local Ollama streaming without `include_usage`, for one. Those calls
+record no measurement and log no token figure, rather than contributing a zero:
+a histogram that takes a zero for every unmeasured call has a p50 of zero and
+reads as a cheap workload. `UsageReported` is how you tell the two apart, and
+`ToString()` leaves the token half off entirely rather than printing `0 in / 0
+out`.
+
+The accumulator that collects this is ambient, like the scope — the requests it
+sums are sent by `FunctionInvokingChatClient`, which knows nothing about the
+method that built it. But it is passed into the logging call as a **required
+parameter** rather than read from ambient state there, so a code path that
+forgot to open one does not compile. Read ambiently, it would have billed that
+path's tokens to whatever accumulator happened to be above it, silently.
 
 # Measuring whether you need generated code
 

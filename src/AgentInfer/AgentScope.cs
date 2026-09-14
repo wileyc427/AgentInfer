@@ -1,5 +1,7 @@
 using System.Diagnostics;
 
+using Microsoft.Extensions.AI;
+
 namespace AgentInfer;
 
 /// <summary>
@@ -44,6 +46,12 @@ public sealed class AgentScope : IDisposable
     private int _operations;
     private int _requests;
     private int _toolCalls;
+    private long _inputTokens;
+    private long _outputTokens;
+    private long _totalTokens;
+    private long _reasoningTokens;
+    private long _cachedInputTokens;
+    private int _usageReports;
     // An int rather than a bool so Dispose can claim it atomically. See there.
     private int _closed;
 
@@ -123,6 +131,32 @@ public sealed class AgentScope : IDisposable
     /// <summary>Tool invocations across every operation in this scope.</summary>
     public int ToolCalls => Volatile.Read(ref _toolCalls);
 
+    /// <summary>
+    /// What this scope spent, summed over every request in it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The number <see cref="Requests"/> cannot give. A workflow's requests are
+    /// interchangeable only if its prompts are the same size, and the first
+    /// thing anyone builds with tools is a step whose prompt grows by a tool
+    /// result each round.
+    /// </para>
+    /// <para>
+    /// Zero when nothing reported — see <see cref="UsageReported"/>, because a
+    /// provider that says nothing and a call that cost nothing produce the same
+    /// zeroes here and mean opposite things.
+    /// </para>
+    /// </remarks>
+    public TokenCounts Tokens => new(
+        Interlocked.Read(ref _inputTokens),
+        Interlocked.Read(ref _outputTokens),
+        Interlocked.Read(ref _totalTokens),
+        Interlocked.Read(ref _reasoningTokens),
+        Interlocked.Read(ref _cachedInputTokens));
+
+    /// <summary>Whether any request in this scope reported its usage.</summary>
+    public bool UsageReported => Volatile.Read(ref _usageReports) > 0;
+
     public TimeSpan Elapsed => Stopwatch.GetElapsedTime(_started);
 
     /// <summary>
@@ -149,15 +183,72 @@ public sealed class AgentScope : IDisposable
         AgentMetrics.WorkflowRequests.Record(Requests, tag);
         AgentMetrics.WorkflowDuration.Record(Elapsed.TotalSeconds, tag);
 
+        var tokens = Tokens;
+
+        // Recorded only when something reported. A histogram that takes a zero
+        // for every unmeasured workflow has a p50 of zero and says nothing.
+        if (UsageReported)
+        {
+            AgentMetrics.WorkflowInputTokens.Record(tokens.Input, tag);
+            AgentMetrics.WorkflowOutputTokens.Record(tokens.Output, tag);
+        }
+
         _activity?.SetTag("agentinfer.workflow.operations", Operations);
         _activity?.SetTag("agentinfer.workflow.requests", Requests);
         _activity?.SetTag("agentinfer.workflow.tool_calls", ToolCalls);
+
+        if (UsageReported)
+        {
+            _activity?.SetTag("agentinfer.workflow.tokens.input", tokens.Input);
+            _activity?.SetTag("agentinfer.workflow.tokens.output", tokens.Output);
+            _activity?.SetTag("agentinfer.workflow.tokens.total", tokens.Total);
+        }
         _activity?.Dispose();
     }
 
-    /// <summary>`6 operations, 9 requests, 14 tool calls in 12.4s`.</summary>
-    public override string ToString() =>
-        $"{Name}: {Operations} operation(s), {Requests} request(s), {ToolCalls} tool call(s) in {Elapsed.TotalSeconds:F1}s";
+    /// <summary>`6 operations, 9 requests, 14 tool calls, 8.2k in / 1.1k out in 12.4s`.</summary>
+    /// <remarks>
+    /// The token half is left off entirely when no provider reported, rather
+    /// than printed as zero. Somebody reading this line to decide whether a
+    /// workflow is affordable should be able to tell "cheap" from "unmeasured".
+    /// </remarks>
+    public override string ToString()
+    {
+        var counted = $"{Operations} operation(s), {Requests} request(s), {ToolCalls} tool call(s)";
+        var spent = UsageReported ? $", {Tokens.Input} in / {Tokens.Output} out token(s)" : string.Empty;
+
+        return $"{Name}: {counted}{spent} in {Elapsed.TotalSeconds:F1}s";
+    }
+
+    /// <summary>
+    /// Adds one request's usage to this scope and every scope enclosing it.
+    /// </summary>
+    /// <remarks>
+    /// Rolled up like <see cref="RecordOperation"/> and for the same reason: an
+    /// agent reached as another agent's tool must not be able to spend a parent
+    /// workflow's tokens without the parent seeing them.
+    /// <para>
+    /// Unlike <see cref="RecordRequest"/> this enforces no bound. It is
+    /// bookkeeping after the fact — the tokens are already spent by the time a
+    /// provider reports them, so refusing here would cost the money and throw
+    /// the result away.
+    /// </para>
+    /// </remarks>
+    internal void AddUsage(UsageDetails usage)
+    {
+        var input = usage.InputTokenCount ?? 0;
+        var output = usage.OutputTokenCount ?? 0;
+
+        for (AgentScope? scope = this; scope is not null; scope = scope.Parent)
+        {
+            Interlocked.Add(ref scope._inputTokens, input);
+            Interlocked.Add(ref scope._outputTokens, output);
+            Interlocked.Add(ref scope._totalTokens, usage.TotalTokenCount ?? input + output);
+            Interlocked.Add(ref scope._reasoningTokens, usage.ReasoningTokenCount ?? 0);
+            Interlocked.Add(ref scope._cachedInputTokens, usage.CachedInputTokenCount ?? 0);
+            Interlocked.Increment(ref scope._usageReports);
+        }
+    }
 
     internal static void RecordOperation(int toolCalls)
     {

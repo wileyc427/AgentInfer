@@ -91,6 +91,42 @@ public static class AgentMetrics
         Meter.CreateHistogram<int>("agentinfer.tools.offered", "{tool}", "Tools offered to the model.");
 
     /// <summary>
+    /// Prompt tokens in one generation method call, summed over its requests.
+    /// </summary>
+    /// <remarks>
+    /// Tagged by operation, because the actionable form of "this is expensive"
+    /// is which method. A single scalar for the process says the bill went up
+    /// and leaves the reader to guess where.
+    /// </remarks>
+    internal static Histogram<long> InputTokens { get; } =
+        Meter.CreateHistogram<long>("agentinfer.tokens.input", "{token}", "Input tokens per generation method call.");
+
+    /// <summary>Generated tokens in one generation method call.</summary>
+    internal static Histogram<long> OutputTokens { get; } =
+        Meter.CreateHistogram<long>("agentinfer.tokens.output", "{token}", "Output tokens per generation method call.");
+
+    /// <summary>
+    /// Output tokens a reasoning model spent thinking rather than answering.
+    /// </summary>
+    /// <remarks>
+    /// Separate because it is the one that explains a latency nobody can
+    /// account for from the reply. A model returning a hundred characters after
+    /// forty seconds has not been slow; it has been writing somewhere the reply
+    /// does not show.
+    /// </remarks>
+    internal static Histogram<long> ReasoningTokens { get; } =
+        Meter.CreateHistogram<long>("agentinfer.tokens.reasoning", "{token}", "Reasoning tokens per generation method call.");
+
+    /// <summary>Prompt tokens served from a provider's cache.</summary>
+    /// <remarks>
+    /// Counted apart from <see cref="InputTokens"/>, which includes them:
+    /// everywhere caching exists these are billed at a fraction, so a cost
+    /// estimate that does not subtract them is wrong upward.
+    /// </remarks>
+    internal static Histogram<long> CachedInputTokens { get; } =
+        Meter.CreateHistogram<long>("agentinfer.tokens.cached_input", "{token}", "Cached input tokens per generation method call.");
+
+    /// <summary>
     /// Spans, sharing the meter's name so one string enables everything.
     /// </summary>
     /// <remarks>
@@ -120,4 +156,18 @@ public static class AgentMetrics
     /// <summary>Wall-clock seconds one scope took.</summary>
     internal static Histogram<double> WorkflowDuration { get; } =
         Meter.CreateHistogram<double>("agentinfer.workflow.duration", "s", "Workflow duration.");
+
+    /// <summary>Input tokens one scope spent, across every agent in it.</summary>
+    /// <remarks>
+    /// The workflow-level counterpart to <see cref="InputTokens"/>. Not a sum
+    /// anyone can take from that one after the fact: per-operation histograms
+    /// are aggregated across every workflow that called the method, so there is
+    /// no way back from them to what one composition cost.
+    /// </remarks>
+    internal static Histogram<long> WorkflowInputTokens { get; } =
+        Meter.CreateHistogram<long>("agentinfer.workflow.tokens.input", "{token}", "Input tokens per workflow.");
+
+    /// <summary>Output tokens one scope spent, across every agent in it.</summary>
+    internal static Histogram<long> WorkflowOutputTokens { get; } =
+        Meter.CreateHistogram<long>("agentinfer.workflow.tokens.output", "{token}", "Output tokens per workflow.");
 }
