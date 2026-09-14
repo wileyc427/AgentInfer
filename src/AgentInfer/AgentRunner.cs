@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 
@@ -60,6 +61,107 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         var text = response.Text ?? string.Empty;
         Log(call, started, text.Length);
         return text;
+    }
+
+    /// <summary>Runs a method whose reply is handed back as it arrives.</summary>
+    /// <remarks>
+    /// <para>
+    /// Text only, and deliberately. There is no half-bound <c>Verdict</c> to
+    /// hand anyone: a typed reply is validated as a whole, so streaming one
+    /// would mean emitting values no rule has run against yet. A method that
+    /// returns a type keeps returning <c>Task&lt;T&gt;</c> and completes.
+    /// </para>
+    /// <para>
+    /// The timer stops when the enumeration does, so the duration is the whole
+    /// response rather than the time to the first token — the same number the
+    /// non-streaming path records, measuring the same thing.
+    /// </para>
+    /// <para>
+    /// Requests are already counted: <see cref="CountingChatClient"/> overrides
+    /// the streaming call too, so a bound set with
+    /// <c>AgentScope.Begin(name, maxRequests)</c> holds here without this method
+    /// knowing about it.
+    /// </para>
+    /// </remarks>
+    public async IAsyncEnumerable<string> StreamTextAsync(
+        AgentCall call,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        using var activity = Source.StartActivity(call.Operation);
+        var started = Stopwatch.GetTimestamp();
+        var length = 0;
+
+        var updates = _client.GetStreamingResponseAsync(Build(call, json: false), cancellationToken: ct);
+
+        await foreach (var update in updates.WithCancellation(ct).ConfigureAwait(false))
+        {
+            var text = update.Text;
+
+            if (string.IsNullOrEmpty(text)) continue;
+
+            length += text.Length;
+            yield return text;
+        }
+
+        Log(call, started, length);
+    }
+
+    /// <summary>The same, for a method that may call tools first.</summary>
+    /// <remarks>
+    /// <para>
+    /// The loop is <c>FunctionInvokingChatClient</c>'s, as it is on the
+    /// non-streaming path, so tool rounds and text arrive interleaved on one
+    /// enumeration and the caller sees text only once the model starts writing
+    /// prose.
+    /// </para>
+    /// <para>
+    /// The enumerator has to be disposed. That is the caller's obligation on any
+    /// <c>IAsyncEnumerable</c> and it matters more here, because abandoning it
+    /// leaves the tool loop's own enumerator undisposed. <c>await foreach</c>
+    /// does it; a hand-rolled <c>MoveNextAsync</c> that returns early does not.
+    /// </para>
+    /// </remarks>
+    public async IAsyncEnumerable<string> StreamWithToolsAsync(
+        AgentCall call,
+        ToolInvoker invoker,
+        IToolAuthorizer authorizer,
+        int maxIterations = 6,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(invoker);
+        ArgumentNullException.ThrowIfNull(authorizer);
+
+        using var activity = Source.StartActivity(call.Operation);
+        var started = Stopwatch.GetTimestamp();
+        var length = 0;
+
+        var available = invoker.AvailableTo(authorizer);
+        var log = new ToolCallLog { Offered = available.Count, Total = invoker.Manifest.Tools.Count };
+
+        var options = new ChatOptions
+        {
+            Tools = [.. available.Select(d => new GatedFunction(d, invoker, authorizer, log))],
+        };
+
+        using var looping = new FunctionInvokingChatClient(_client)
+        {
+            MaximumIterationsPerRequest = maxIterations,
+        };
+
+        var updates = looping.GetStreamingResponseAsync(Build(call, json: false), options, ct);
+
+        await foreach (var update in updates.WithCancellation(ct).ConfigureAwait(false))
+        {
+            var text = update.Text;
+
+            if (string.IsNullOrEmpty(text)) continue;
+
+            length += text.Length;
+            yield return text;
+        }
+
+        Record(call, log);
+        Log(call, started, length, log.Invocations);
     }
 
     /// <summary>Runs a method whose return type is bound from JSON.</summary>

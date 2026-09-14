@@ -50,7 +50,7 @@ internal static class Diagnostics
     public static readonly DiagnosticDescriptor UnsupportedReturnType = new(
         id: "AIN003",
         title: "Unsupported return type",
-        messageFormat: "'{0}' returns '{1}'. A generation method must return Task<T>; T is the contract the reply is bound to.",
+        messageFormat: "'{0}' returns '{1}'. A generation method must return Task<T>, where T is the contract the reply is bound to, or IAsyncEnumerable<string> to receive the text as it arrives.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);

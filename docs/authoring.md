@@ -77,6 +77,37 @@ Two deliberate limits:
   that, and `{{placeholder}}` is a substantially larger commitment than file
   I/O.
 
+# Streaming the reply
+
+A generation method that returns `IAsyncEnumerable<string>` hands the text back
+as the model writes it:
+
+```csharp
+[Prompt("Draft a postmortem for this incident from these findings.")]
+[Model(ModelRoles.Accurate)]
+public IAsyncEnumerable<string> StreamDraftAsync(
+    string alert, string findings, CancellationToken ct = default);
+```
+
+That is the whole declaration. Everything else holds: the model role still
+routes, tools still run and are still narrowed by permission, and `AgentScope`
+still counts the request — `CountingChatClient` wraps the streaming call as
+well as the buffered one, so a bound set for a workflow is not quietly bypassed
+by streaming it.
+
+The generated method forwards the runner's enumerable rather than iterating it,
+so it stays an ordinary method rather than becoming an iterator and there is no
+second enumerator in the middle. **Dispose it.** `await foreach` does; a
+hand-rolled loop that returns early does not, and abandoning it leaves the tool
+loop's own enumerator open.
+
+**Only `string` streams.** A typed reply is validated as a whole, so there is no
+half-bound `Review` worth handing anyone — those methods keep returning
+`Task<T>` and complete. `IAsyncEnumerable<Review>` is `AIN003`.
+
+`samples/Incident` streams its postmortem draft, so the path runs in CI rather
+than only compiling.
+
 # The diagnostics are the product
 
 Seventeen rules, each a failure that was cheap to hit and expensive to notice,
@@ -135,14 +166,17 @@ Add `[Prompt]`, or move the method off the interface.
 
 **Unsupported return type** · Error
 
-> '{0}' returns '{1}'. A generation method must return Task<T>; T is the
-> contract the reply is bound to.
+> '{0}' returns '{1}'. A generation method must return Task<T>, where T is the
+> contract the reply is bound to, or IAsyncEnumerable<string> to receive the
+> text as it arrives.
 
 A return type nothing can bind fails on the first call, after the model has
 already been paid for.
 
-Return `Task<T>`. `T` is what the reply binds to; see
-[Typed replies](typed-replies.md).
+Return `Task<T>`, where `T` is what the reply binds to — see
+[Typed replies](typed-replies.md) — or `IAsyncEnumerable<string>` to stream the
+text. `IAsyncEnumerable<T>` of anything but `string` is this error: a typed
+reply is validated as a whole, so there is no partial value to hand back.
 
 ### AIN004
 
