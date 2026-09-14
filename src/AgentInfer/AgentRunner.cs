@@ -686,13 +686,41 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         }
     }
 
+    /// <summary>
+    /// How much rendered argument text puts the instruction far enough from the
+    /// end to be worth repeating there.
+    /// </summary>
+    /// <remarks>
+    /// A heuristic, and worth saying so rather than dressing up. Below roughly
+    /// this much the whole message is one glance and the instruction is as good
+    /// as adjacent; above it, the model's last few hundred characters before
+    /// generating are a closing tag. 500 sits well above any scalar argument
+    /// and far below any document, which is the only precision the number needs.
+    /// </remarks>
+    private const int RestateInstructionOver = 500;
+
     private static ChatMessage[] Build(AgentCall call, bool json)
     {
         var user = new StringBuilder(call.TaskPrompt);
+        var instruction = user.Length;
 
         foreach (var (name, value) in call.Arguments)
         {
             user.Append("\n\n<").Append(name).Append(">\n").Append(value).Append("\n</").Append(name).Append('>');
+        }
+
+        // Said once for framing and again for recency. A 60-exchange transcript
+        // leaves the instruction 2,000 characters back, with a closing tag as
+        // the last thing read before generating — and the prompt layout is
+        // fixed here, so a caller passing a long argument has no way to fix that
+        // from the interface.
+        //
+        // Only when something is actually buried. Repeating "Summarize this."
+        // either side of the word "hi" reads as a formatting error rather than
+        // emphasis.
+        if (user.Length - instruction > RestateInstructionOver)
+        {
+            user.Append("\n\n").Append(call.TaskPrompt);
         }
 
         if (json)

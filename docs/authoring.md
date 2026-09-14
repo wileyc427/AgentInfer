@@ -41,6 +41,121 @@ so with the line to paste. Paths in the attribute are relative to the project
 directory; the generator resolves them against `ProjectDir`, which the SDK
 already makes visible to analyzers.
 
+## What the model actually receives
+
+Two messages. The system prompt from `[Agent]`, then one user message holding
+the task prompt from `[Prompt]` with each argument tagged by its parameter name,
+in declaration order:
+
+```
+[system]  You answer questions about a household ledger.
+[user]    Answer the customer's latest message.
+
+          <transcript>
+          customer: my order is late
+          agent: let me check
+          </transcript>
+
+          <message>
+          any update?
+          </message>
+```
+
+Two consequences follow from that layout, and neither is guessable from the
+method signature.
+
+**Declaration order decides whether a prompt cache can hit.** Arguments render
+in the order they are declared, so consecutive calls share a prefix only up to
+the first argument that changed. Put whatever grows first and whatever varies
+last. Measured on two consecutive turns of a 40-exchange conversation:
+
+| Declaration | Prefix shared with the previous turn |
+| --- | --- |
+| `ReplyAsync(string transcript, string message)` | **94.5%** |
+| `ReplyAsync(string message, string transcript)` | 5.1% |
+
+Same tokens, same behaviour, same everything — two parameters swapped. On a
+provider that bills cached input at a fraction, that is most of the cost of a
+long thread. `agentinfer.tokens.cached_input` is the counter that tells you
+which one you built.
+
+**A long argument gets the instruction repeated at the end.** Sixty exchanges
+of transcript leave the task prompt two thousand characters back, with a closing
+tag as the last thing the model reads before generating. Where the rendered
+arguments exceed 500 characters the task prompt is stated again after them —
+framing at the top, recency at the bottom:
+
+```
+Answer the customer's latest message.
+
+<transcript>…</transcript>
+
+<message>any update?</message>
+
+Answer the customer's latest message.
+```
+
+Below that size nothing is buried, and repeating `Summarize this.` either side
+of the word `hi` reads as a formatting error rather than as emphasis. On a typed
+method the restatement goes *before* the JSON rules and the schema, so the last
+two things read are what to do and then how to format it.
+
+## Conversations are the caller's, not the library's
+
+There is no conversation here. A generation method is a function call, a C#
+signature has nowhere to put history, and nothing persists between calls. That
+is a position rather than an omission — but it means multi-turn is something you
+build, and there are two ways.
+
+**Pass the context as an argument.** It renders as `<transcript>` above. Simple,
+visible in the signature, and subject to both rules in the previous section.
+Right for context that is not conversational in the first place: a document to
+summarise, retrieved passages, a diff to review.
+
+**Splice real turns with a decorator.** `AgentRunner` takes an `IChatClient` and
+nothing else, so a `DelegatingChatClient` sits between it and the provider:
+
+```csharp
+sealed class Threaded(IChatClient inner, List<ChatMessage> history) : DelegatingChatClient(inner)
+{
+    public override Task<ChatResponse> GetResponseAsync(
+        IEnumerable<ChatMessage> m, ChatOptions? o = null, CancellationToken ct = default)
+    {
+        var list = m.ToList();
+
+        // Only the first request of a method call. Tool-loop rounds are longer
+        // and already carry their own assistant and tool turns.
+        if (list.Count == 2) list = [list[0], .. history, list[1]];
+
+        return base.GetResponseAsync(list, o, ct);
+    }
+}
+
+var support = new AgentRunner(new Threaded(client, thread.History));
+```
+
+This is the better answer for anything genuinely conversational, and not only
+because the roles survive. It also moves the bulk out of the user message: the
+same sixty exchanges take the final user message from 2,119 characters to 71,
+which puts the instruction next to the question rather than two thousand
+characters behind it.
+
+Three things to get right:
+
+- **The `Count == 2` guard.** Without it a tool-using method re-prepends the
+  whole history on every round of the loop. `PromptLayoutTests` pins both sides
+  of that discriminator, so a change to the message shape breaks the build
+  rather than your wrapper.
+- **Override the streaming method too**, or streamed calls quietly bypass the
+  splice.
+- **Correlation is yours.** Nothing in a call identifies a conversation. An
+  `AsyncLocal` set at the call site flows into the decorator, the same mechanism
+  `AgentScope` already uses.
+
+Neither shape fences prompt injection. Text a user wrote is text a user wrote,
+whether it arrives inside `<transcript>` or as a `ChatRole.User` turn; the tags
+help a model tell instruction from data, and they are not a boundary.
+
 ## Laying out a project
 
 Flat files named for what they hold, and one directory:
