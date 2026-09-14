@@ -21,7 +21,7 @@ public sealed class TokenUsageTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     /// <summary>Reports the same usage on every request.</summary>
-    private sealed class Metered(long input, long output, int toolCalls = 0, long reasoning = 0) : IChatClient
+    private sealed class Metered(long input, long output, int toolCalls = 0, long reasoning = 0, string reply = "Done.") : IChatClient
     {
         private int _made;
 
@@ -41,7 +41,7 @@ public sealed class TokenUsageTests
 
             var message = _made++ < toolCalls
                 ? new ChatMessage(ChatRole.Assistant, [new FunctionCallContent($"c{_made}", "TotalFor", new Dictionary<string, object?>())])
-                : new ChatMessage(ChatRole.Assistant, "Done.");
+                : new ChatMessage(ChatRole.Assistant, reply);
 
             return Task.FromResult(new ChatResponse(message) { Usage = Usage() });
         }
@@ -53,7 +53,7 @@ public sealed class TokenUsageTests
         {
             Requests++;
 
-            yield return new ChatResponseUpdate(ChatRole.Assistant, "Done.");
+            yield return new ChatResponseUpdate(ChatRole.Assistant, reply);
             await Task.Yield();
 
             yield return new ChatResponseUpdate(ChatRole.Assistant, [new UsageContent(Usage())]);
@@ -256,6 +256,36 @@ public sealed class TokenUsageTests
 
         // One measurement per method call, not per request — the histogram's
         // unit is "what one call costs", which is the thing a budget is set in.
+        Assert.Equal([300], input);
+    }
+
+    [Fact]
+    public async Task A_two_phase_call_is_billed_its_binding_request_too()
+    {
+        var operation = $"ILedger.{nameof(A_two_phase_call_is_billed_its_binding_request_too)}";
+
+        var client = new Metered(input: 100, output: 1, toolCalls: 1, reply: """{"value":3,"reason":"ok"}""");
+        using var scope = AgentScope.Begin("ledger.bind");
+
+        var (listener, input) = Collect("agentinfer.tokens.input", operation);
+        using (listener)
+        {
+            await new AgentRunner(client).CompleteJsonWithToolsAsync(
+                Call(operation), ScoreContract.Instance, new Ledger(), new GrantedPermissions(["ledger.read"]),
+                maxIterations: 10, ct: Ct);
+        }
+
+        // A tool-using typed method runs in two phases: the loop, then a
+        // separate request that binds with no tools offered. Three requests —
+        // one round asking for the tool, one answering it, one binding.
+        Assert.Equal(3, client.Requests);
+
+        // The per-operation histogram has to agree with the scope, and it did
+        // not: the tool loop reported at its own end, which is the operation's
+        // end for exactly one of that helper's four callers. This method was
+        // billed 200 of the 300 it spent, and the missing request was the
+        // largest — the binding prompt carries the whole tool-loop answer.
+        Assert.Equal(300, scope.Tokens.Input);
         Assert.Equal([300], input);
     }
 

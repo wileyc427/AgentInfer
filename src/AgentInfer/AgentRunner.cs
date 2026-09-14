@@ -386,8 +386,11 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         using var usage = UsageAccumulator.Begin();
         var started = Stopwatch.GetTimestamp();
 
-        return await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, started, usage, ct)
+        var (text, log) = await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, ct)
             .ConfigureAwait(false);
+
+        Log(call, started, text.Length, usage, log.Invocations);
+        return text;
     }
 
     /// <summary>
@@ -433,7 +436,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         // normally, then bind in a second call with no tools and nothing to be
         // confused by. One extra round trip, and the failure mode goes away
         // rather than being tuned around.
-        var text = await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, started, usage, ct)
+        var (text, log) = await RunWithToolsAsync(call, invoker, authorizer, maxIterations, json: false, ct)
             .ConfigureAwait(false);
 
         // The arguments come along, and dropping them was a bug. The binding
@@ -451,6 +454,11 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
 
         var reply = await _client.GetResponseAsync(Build(binding, json: true), FormatFor(binding), ct)
             .ConfigureAwait(false);
+
+        // Before Bind, not after. Binding throws on a reply that will not
+        // deserialize, and a call that spent three round trips and then failed
+        // is precisely the one whose cost somebody wants in the log.
+        Log(call, started, reply.Text?.Length ?? 0, usage, log.Invocations);
 
         return Bind<T>(call, reply.Text ?? string.Empty, options);
     }
@@ -485,7 +493,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
 
         var described = call with { ResponseSchema = contract.Schema };
 
-        var text = await RunWithToolsAsync(described, invoker, authorizer, maxIterations, json: false, started, usage, ct)
+        var (text, log) = await RunWithToolsAsync(described, invoker, authorizer, maxIterations, json: false, ct)
             .ConfigureAwait(false);
 
         var binding = described with
@@ -496,6 +504,8 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
 
         var reply = await _client.GetResponseAsync(Build(binding, json: true), FormatFor(binding), ct)
             .ConfigureAwait(false);
+
+        Log(described, started, reply.Text?.Length ?? 0, usage, log.Invocations);
 
         return Bind(described, reply.Text ?? string.Empty, contract);
     }
@@ -521,7 +531,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
 
         var described = call with { ResponseSchema = contract.Schema };
 
-        var text = await RunWithToolsAsync(described, invoker, authorizer, maxIterations, json: false, started, usage, ct)
+        var (text, log) = await RunWithToolsAsync(described, invoker, authorizer, maxIterations, json: false, ct)
             .ConfigureAwait(false);
 
         var binding = described with
@@ -532,6 +542,8 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
 
         var reply = await _client.GetResponseAsync(Build(binding, json: true), FormatFor(binding), ct)
             .ConfigureAwait(false);
+
+        Log(described, started, reply.Text?.Length ?? 0, usage, log.Invocations);
 
         return TryBind(described, reply.Text ?? string.Empty, contract, out _);
     }
@@ -552,14 +564,20 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
             nameof(call));
     }
 
-    private async Task<string> RunWithToolsAsync(
+    /// <summary>Runs the tool loop and hands back what it produced.</summary>
+    /// <remarks>
+    /// Reports nothing itself, and returns the tool log rather than logging it.
+    /// Three of its four callers send a binding request after this returns, so
+    /// the end of the loop is the end of the operation for exactly one of them
+    /// — and reporting here billed the other three for every request but their
+    /// last.
+    /// </remarks>
+    private async Task<(string Text, ToolCallLog Log)> RunWithToolsAsync(
         AgentCall call,
         ToolInvoker invoker,
         IToolAuthorizer authorizer,
         int maxIterations,
         bool json,
-        long started,
-        UsageAccumulator usage,
         CancellationToken ct)
     {
         var available = invoker.AvailableTo(authorizer);
@@ -588,8 +606,7 @@ public sealed class AgentRunner(IChatClient client, ILogger<AgentRunner>? logger
         // public method the caller entered through, and threading it down would
         // be plumbing to reach something already ambient.
         Record(call, log);
-        Log(call, started, text.Length, usage, log.Invocations);
-        return text;
+        return (text, log);
     }
 
     /// <summary>
